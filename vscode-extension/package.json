@@ -1,0 +1,160 @@
+{
+  "name": "nerv-code",
+  "displayName": "NERV CODE",
+  "description": "NERV CODE sidebar for VS Code powered by the NERV-CODE CLI",
+  "version": "1.0.0",
+  "publisher": "nerv",
+  "license": "MIT",
+  "icon": "media/nerv-marketplace-icon.png",
+  "galleryBanner": {
+    "color": "#0A0A0C",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "keywords": [
+    "nerv",
+    "magi",
+    "ai",
+    "claude",
+    "sidebar"
+  ],
+  "files": [
+    "extension.js",
+    "README.md",
+    "LICENSE.md",
+    "CHANGELOG.md",
+    "media/app.js",
+    "media/styles.css",
+    "media/nerv-logo-transparent.png",
+    "media/nerv-marketplace-icon.png",
+    "media/nerv-toolbar-icon.png"
+  ],
+  "activationEvents": [
+    "onCommand:nerv-code.open",
+    "onCommand:nerv-code.restart",
+    "onView:nerv-code.sidebarView"
+  ],
+  "main": "./extension.js",
+  "scripts": {
+    "package": "npx @vscode/vsce package --allow-missing-repository",
+    "publish:marketplace": "npx @vscode/vsce publish --allow-missing-repository"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "nerv-code.open",
+        "title": "NERV CODE: Open",
+        "icon": {
+          "light": "media/nerv-toolbar-icon.png",
+          "dark": "media/nerv-toolbar-icon.png"
+        }
+      },
+      {
+        "command": "nerv-code.restart",
+        "title": "NERV CODE: Restart Session"
+      }
+    ],
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "nerv-code-sidebar",
+          "title": "NERV CODE",
+          "icon": "media/nerv-toolbar-icon.png"
+        }
+      ]
+    },
+    "views": {
+      "nerv-code-sidebar": [
+        {
+          "type": "webview",
+          "id": "nerv-code.sidebarView",
+          "name": "NERV CODE"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "NERV CODE",
+      "properties": {
+        "nerv-code.command": {
+          "type": "string",
+          "default": "nerv",
+          "description": "Command used to launch NERV CODE when nerv-code.cliPath is empty. Keep this as nerv when the CLI is installed on PATH."
+        },
+        "nerv-code.cliPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to a local NERV-CODE dist/cli.js file. When set, the extension launches this script with Node.js."
+        },
+        "nerv-code.nodePath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional absolute path to the Node.js executable used with nerv-code.cliPath. Leave empty to use node from PATH."
+        },
+        "nerv-code.defaultProfile": {
+          "type": "string",
+          "default": "",
+          "description": "Default model profile ID to select when NERV CODE starts. Built-in preset IDs include minimax-m2-7."
+        },
+        "nerv-code.modelProfiles": {
+          "type": "array",
+          "default": [],
+          "description": "Profiles shown in the NERV CODE model picker. Put API credentials inside each profile's env map. Example custom proxy profile: model=\"MiniMax-M2.7\", env={\"ANTHROPIC_BASE_URL\":\"https://api.minimax.io/anthropic\",\"ANTHROPIC_AUTH_TOKEN\":\"set-in-user-settings\"}.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "label",
+              "model"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Stable profile ID."
+              },
+              "label": {
+                "type": "string",
+                "description": "Label shown in the model picker."
+              },
+              "model": {
+                "type": "string",
+                "description": "Model value sent to the NERV CLI set_model control request."
+              },
+              "description": {
+                "type": "string",
+                "description": "Optional short description shown in the picker."
+              },
+              "env": {
+                "type": "object",
+                "description": "Environment variables applied when this profile is active. API keys go here. Typical examples: ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, ANTHROPIC_BASE_URL, ANTHROPIC_CUSTOM_MODEL_OPTION, CLAUDE_CODE_USE_BEDROCK, CLAUDE_CODE_USE_VERTEX, CLAUDE_CODE_USE_FOUNDRY.",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "menus": {
+      "editor/title": [
+        {
+          "command": "nerv-code.open",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "nerv-code.restart",
+          "when": "view == nerv-code.sidebarView",
+          "group": "navigation@1"
+        }
+      ]
+    }
+  }
+}
