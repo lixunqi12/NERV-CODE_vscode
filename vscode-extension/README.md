@@ -2,6 +2,14 @@
 
 NERV CODE brings the NERV-CODE CLI into the VS Code secondary sidebar with a themed webview, model switching, session restart controls, permission prompts, and lightweight IDE context sharing.
 
+## Special Thanks
+
+This extension package is based on the original **NERV-CODE** project by **Ax1i1om**.
+
+- Original repository: **[Ax1i1om/NERV-CODE](https://github.com/Ax1i1om/NERV-CODE)**
+
+Special thanks to the original author for the original project and the NERV-themed implementation this packaging builds on.
+
 ## Requirements
 
 This extension does not bundle the CLI. Install or build the NERV-CODE CLI separately, then use one of these launch modes:

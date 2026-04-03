@@ -38,6 +38,16 @@ This is a **research & fan project** — all functionality comes from the origin
 
 ---
 
+## Special Thanks
+
+This GitHub copy and the VS Code extension packaging are based on the original **NERV-CODE** project by **Ax1i1om**.
+
+- Original repository: **[Ax1i1om/NERV-CODE](https://github.com/Ax1i1om/NERV-CODE)**
+
+Special thanks to the original author for the project itself, the NERV-themed design direction, and the restoration work that made this packaging possible.
+
+---
+
 ## REFERENCE
 
 > In the spirit of open source community etiquette, we gratefully acknowledge:

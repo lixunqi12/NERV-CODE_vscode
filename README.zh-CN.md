@@ -38,6 +38,16 @@
 
 ---
 
+## 特别鸣谢
+
+这个 GitHub 仓库副本以及 VS Code 扩展打包工作，均基于 **Ax1i1om** 的原始 **NERV-CODE** 项目。
+
+- 原项目仓库：**[Ax1i1om/NERV-CODE](https://github.com/Ax1i1om/NERV-CODE)**
+
+特别感谢原作者完成了项目本体、NERV 风格设计方向，以及让这次扩展封装成为可能的还原工作。
+
+---
+
 ## 致谢 (REFERENCE)
 
 > 遵循开源社区礼仪，我们衷心感谢以下项目：
