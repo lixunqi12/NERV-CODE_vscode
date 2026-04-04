@@ -4,6 +4,76 @@ const os = require('os');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { randomUUID } = require('crypto');
+const zlib = require('zlib');
+
+/* ── Lightweight PDF text extractor (zero dependencies) ──
+ * Parses PDF binary, inflates FlateDecode streams, extracts text operators.
+ * Returns plain text. Not perfect for all PDFs but covers the vast majority. */
+function extractPdfText(buf) {
+  // Collect all stream contents (inflate FlateDecode, pass through others)
+  const streams = [];
+  let pos = 0;
+  while (pos < buf.length) {
+    const sIdx = buf.indexOf('stream\r\n', pos);
+    const sIdx2 = buf.indexOf('stream\n', pos);
+    let streamStart = -1;
+    let headerLen = 0;
+    if (sIdx >= 0 && (sIdx2 < 0 || sIdx <= sIdx2)) { streamStart = sIdx; headerLen = 8; }
+    else if (sIdx2 >= 0) { streamStart = sIdx2; headerLen = 7; }
+    if (streamStart < 0) break;
+
+    const dataStart = streamStart + headerLen;
+    // Find matching endstream
+    let endIdx = buf.indexOf('endstream', dataStart);
+    if (endIdx < 0) break;
+    // Trim trailing \r\n or \n before endstream
+    let dataEnd = endIdx;
+    if (dataEnd > dataStart && buf[dataEnd - 1] === 0x0A) dataEnd--;
+    if (dataEnd > dataStart && buf[dataEnd - 1] === 0x0D) dataEnd--;
+
+    const raw = buf.slice(dataStart, dataEnd);
+    // Check if FlateDecode by scanning the object dict before 'stream'
+    const dictChunk = buf.slice(Math.max(0, streamStart - 512), streamStart).toString('latin1');
+    if (/\/FlateDecode/.test(dictChunk)) {
+      try { streams.push(zlib.inflateSync(raw)); } catch (_) { /* skip corrupt */ }
+    } else {
+      streams.push(raw);
+    }
+    pos = endIdx + 9;
+  }
+
+  // Extract text from PDF text operators: Tj, TJ, ', "
+  const lines = [];
+  for (const s of streams) {
+    const txt = s.toString('latin1');
+    // TJ array: [(text) 123 (text)] TJ
+    const tjArr = /\[([^\]]*)\]\s*TJ/g;
+    let m;
+    while ((m = tjArr.exec(txt)) !== null) {
+      const inner = m[1];
+      const parts = [];
+      const strRe = /\(([^)]*)\)/g;
+      let sm;
+      while ((sm = strRe.exec(inner)) !== null) parts.push(sm[1]);
+      if (parts.length) lines.push(parts.join(''));
+    }
+    // Tj: (text) Tj
+    const tj = /\(([^)]*)\)\s*Tj/g;
+    while ((m = tj.exec(txt)) !== null) lines.push(m[1]);
+    // ' and ": (text) '  or  aw ac (text) "
+    const tq = /\(([^)]*)\)\s*['"]/g;
+    while ((m = tq.exec(txt)) !== null) lines.push(m[1]);
+  }
+
+  // Unescape PDF string escapes
+  const unescape = s => s
+    .replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t')
+    .replace(/\\\(/g, '(').replace(/\\\)/g, ')').replace(/\\\\/g, '\\')
+    .replace(/\\(\d{1,3})/g, (_, oct) => String.fromCharCode(parseInt(oct, 8)));
+
+  const result = lines.map(unescape).join('\n');
+  return result.trim();
+}
 
 const _NERV_LOG = path.join(os.homedir(), 'nerv-debug.log');
 function _log(m) { try { fs.appendFileSync(_NERV_LOG, '[' + new Date().toISOString() + '] ' + m + '\n'); } catch(_){} }
@@ -1867,15 +1937,22 @@ class NervCodeController {
           // The 'document' block type is Anthropic-only; text blocks work everywhere.
           const decoded = Buffer.from(att.data, 'base64').toString('utf-8');
           if (att.mediaType === 'application/pdf') {
-            // PDF: binary cannot be meaningfully decoded to UTF-8, so we send both
-            // a text marker (so any model knows a PDF was attached) and the raw block
-            // for models that natively support it (Claude).
-            content.push({
-              type: 'text',
-              text: `[Attached PDF: ${att.name}]\n`
-                  + `(If you can read PDF document blocks, the full PDF follows as the next content block. `
-                  + `Otherwise, please ask the user to paste the relevant text from the PDF.)`,
-            });
+            // PDF: extract text so ANY model can read the content, then also
+            // include the raw document block for Claude (native PDF support).
+            const pdfBuf = Buffer.from(att.data, 'base64');
+            const extractedText = extractPdfText(pdfBuf);
+            if (extractedText) {
+              content.push({
+                type: 'text',
+                text: `── PDF: ${att.name} (extracted text) ──\n${extractedText}\n── End of ${att.name} ──`,
+              });
+            } else {
+              content.push({
+                type: 'text',
+                text: `[Attached PDF: ${att.name} — text extraction failed, this may be a scanned/image-based PDF]`,
+              });
+            }
+            // Also send the raw document block for models with native PDF support
             content.push({
               type: 'document',
               source: { type: 'base64', media_type: 'application/pdf', data: att.data },
