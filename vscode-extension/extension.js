@@ -1509,7 +1509,7 @@ class NervCodeController {
       case 'sendPrompt':
         _log('handleWebviewMessage: sendPrompt text=' + JSON.stringify(message.text));
         {
-          const _r = await this.sendPrompt(message.text);
+          const _r = await this.sendPrompt(message.text, { attachments: message.attachments });
           _log('handleWebviewMessage: sendPrompt result=' + JSON.stringify(_r));
           this.view?.webview.postMessage({ type: 'promptSubmission', result: _r });
         }
@@ -1844,11 +1844,46 @@ class NervCodeController {
     this.state.lastError = null;
     this.postState();
 
+    // Build content: string for plain text, array for text + attachments
+    let content;
+    const textContent = options.raw ? effectivePrompt : this.buildPromptWithIdeContext(effectivePrompt);
+    const attachments = Array.isArray(options.attachments) ? options.attachments : [];
+
+    if (attachments.length > 0) {
+      content = [{ type: 'text', text: textContent }];
+      for (const att of attachments) {
+        if (att.type === 'image') {
+          content.push({
+            type: 'image',
+            source: { type: 'base64', media_type: att.mediaType, data: att.data },
+          });
+        } else if (att.type === 'document') {
+          if (att.mediaType === 'application/pdf') {
+            content.push({
+              type: 'document',
+              source: { type: 'base64', media_type: 'application/pdf', data: att.data },
+              title: att.name,
+            });
+          } else {
+            // Text file: decode base64 and send as text document
+            const decoded = Buffer.from(att.data, 'base64').toString('utf-8');
+            content.push({
+              type: 'document',
+              source: { type: 'text', media_type: 'text/plain', data: decoded },
+              title: att.name,
+            });
+          }
+        }
+      }
+    } else {
+      content = textContent;
+    }
+
     const message = {
       type: 'user',
       message: {
         role: 'user',
-        content: options.raw ? effectivePrompt : this.buildPromptWithIdeContext(effectivePrompt),
+        content,
       },
       parent_tool_use_id: null,
       session_id: this.state.sessionId || '',
@@ -2776,7 +2811,9 @@ class NervCodeController {
       <div class="slash-popup hidden" id="slashPopup"></div>
 
       <footer class="composer">
+        <div class="attachments-preview hidden" id="attachmentsPreview"></div>
         <div class="input-container">
+          <button class="attach-btn" id="attachButton" title="Attach file" type="button">&#128206;</button>
           <span class="input-prefix">&gt;</span>
           <textarea
             id="promptInput"

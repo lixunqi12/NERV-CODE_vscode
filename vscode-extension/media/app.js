@@ -57,6 +57,8 @@ const elements = {
   loginClaudeAi: document.getElementById('loginClaudeAi'), // Claude.ai 订阅登录
   loginConsole: document.getElementById('loginConsole'),   // Console 登录
   loginCancel: document.getElementById('loginCancel'),     // 取消登录
+  attachButton: document.getElementById('attachButton'),   // 附件按钮
+  attachmentsPreview: document.getElementById('attachmentsPreview'), // 附件预览区
   /* Slash 命令自动补全弹出层 */
   slashPopup: document.getElementById('slashPopup'),
   /* 会话标签栏 */
@@ -1376,18 +1378,105 @@ function render(state) {
  * 十六、提交 Prompt
  * 用户按下 Send 按钮或 Enter 键时触发
  * ============================================================ */
+/** Pending file attachments */
+let pendingAttachments = [];
+
+/** Supported file types */
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+const PDF_TYPE = 'application/pdf';
+
+function classifyFile(mimeType, name) {
+  if (IMAGE_TYPES.includes(mimeType)) return 'image';
+  if (mimeType === PDF_TYPE) return 'document';
+  const ext = (name || '').split('.').pop()?.toLowerCase();
+  const textExts = new Set([
+    'js','ts','jsx','tsx','py','go','rs','java','c','cpp','h','hpp','cs','rb','php',
+    'swift','kt','scala','sh','bash','zsh','fish','ps1','bat','cmd','sql','graphql',
+    'json','yaml','yml','toml','xml','html','css','scss','less','md','txt','csv',
+    'log','ini','cfg','conf','env','gitignore','dockerfile','makefile',
+  ]);
+  if (textExts.has(ext)) return 'document';
+  return null;
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handleFileSelection(files) {
+  for (const file of Array.from(files)) {
+    const type = classifyFile(file.type, file.name);
+    if (!type) continue;
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      if (!match) continue;
+      pendingAttachments.push({
+        name: file.name,
+        type,
+        mediaType: match[1],
+        data: match[2],
+        previewUrl: type === 'image' ? dataUrl : null,
+      });
+    } catch (e) { /* skip */ }
+  }
+  renderAttachmentPreview();
+}
+
+function renderAttachmentPreview() {
+  if (!elements.attachmentsPreview) return;
+  if (pendingAttachments.length === 0) {
+    elements.attachmentsPreview.classList.add('hidden');
+    elements.attachmentsPreview.innerHTML = '';
+    return;
+  }
+  elements.attachmentsPreview.classList.remove('hidden');
+  elements.attachmentsPreview.innerHTML = pendingAttachments.map((att, i) => {
+    const preview = att.previewUrl
+      ? `<img src="${att.previewUrl}" class="attachment-thumb" alt="${escapeHtml(att.name)}" />`
+      : `<span class="attachment-icon">📄</span>`;
+    return `<div class="attachment-chip" data-index="${i}">
+      ${preview}
+      <span class="attachment-name">${escapeHtml(att.name)}</span>
+      <button class="attachment-remove" data-index="${i}" type="button">&times;</button>
+    </div>`;
+  }).join('');
+
+  // Bind remove buttons
+  elements.attachmentsPreview.querySelectorAll('.attachment-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const idx = parseInt(e.target.dataset.index, 10);
+      pendingAttachments.splice(idx, 1);
+      renderAttachmentPreview();
+    });
+  });
+}
+
 function sendPrompt() {
   const text = elements.promptInput.value.trim();
-  if (!text) return;
+  if (!text && pendingAttachments.length === 0) return;
 
-  // 隐藏 slash 命令弹出
   hideSlashPopup();
 
   pendingPromptText = text;
   uiState.optimisticUserText = text;
   uiState.optimisticUserTimestamp = new Date().toISOString();
   if (currentState) render(currentState);
-  vscode.postMessage({ type: 'sendPrompt', text });
+
+  const msg = { type: 'sendPrompt', text: text || '(see attached files)' };
+  if (pendingAttachments.length > 0) {
+    msg.attachments = pendingAttachments.map(a => ({
+      name: a.name, type: a.type, mediaType: a.mediaType, data: a.data,
+    }));
+  }
+  vscode.postMessage(msg);
+  pendingAttachments = [];
+  renderAttachmentPreview();
 }
 
 /* ============================================================
@@ -1454,6 +1543,31 @@ bindEvent(elements.loginConsole, 'click', () => {
 });
 bindEvent(elements.loginCancel, 'click', () => {
   vscode.postMessage({ type: 'loginCancel' });
+});
+
+// ── 附件按钮 ──
+bindEvent(elements.attachButton, 'click', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.multiple = true;
+  input.onchange = () => {
+    if (input.files && input.files.length > 0) handleFileSelection(input.files);
+  };
+  input.click();
+});
+
+// ── 粘贴图片 ──
+bindEvent(elements.promptInput, 'paste', (e) => {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  const files = [];
+  for (const item of items) {
+    if (item.kind === 'file') {
+      const file = item.getAsFile();
+      if (file) files.push(file);
+    }
+  }
+  if (files.length > 0) handleFileSelection(files);
 });
 
 // ── 新会话按钮 ──

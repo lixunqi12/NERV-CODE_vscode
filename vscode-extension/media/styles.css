@@ -961,6 +961,26 @@ textarea:disabled {
   border-color: rgba(183, 40, 46, 0.28);
 }
 
+.attach-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  font-size: 14px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.attach-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
 .send-btn {
   width: 28px;
   height: 28px;
@@ -977,6 +997,55 @@ textarea:disabled {
 
 .send-btn:hover {
   opacity: 0.86;
+}
+
+/* ── Attachment preview ── */
+.attachments-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px 0;
+}
+.attachment-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  max-width: 180px;
+}
+.attachment-thumb {
+  width: 20px;
+  height: 20px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.attachment-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+}
+.attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.attachment-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.attachment-remove:hover {
+  color: var(--accent);
 }
 
 .composer--has-input textarea {
