@@ -41,7 +41,7 @@
   <img src="vscode-extension/design-preview/nerv-dashboard-preview.png" alt="NERV CODE 仪表盘" width="340"/>
 </p>
 
-> 可交互预览：[`design-preview/NERV_CODE.html`](vscode-extension/design-preview/NERV_CODE.html) · [`nerv-sidecar-preview.html`](vscode-extension/design-preview/nerv-sidecar-preview.html) · [`nerv-dashboard-preview.html`](vscode-extension/design-preview/nerv-dashboard-preview.html)
+> 可交互预览：[`nerv-sidecar-preview.html`](vscode-extension/design-preview/nerv-sidecar-preview.html)
 
 ---
 
