@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NERV CODE Dashboard Preview</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Silkscreen:wght@400;700&family=VT323&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./nerv-dashboard-preview.css" />
+  </head>
+  <body>
+    <main class="scene">
+      <section class="window-shell">
+        <header class="window-bar">
+          <div class="traffic-lights" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div class="window-title">NERV-CODE // chat-dashboard-preview</div>
+          <div class="window-actions">
+            <span>SYNC</span>
+            <span>AT-FIELD</span>
+          </div>
+        </header>
+
+        <section class="dashboard">
+          <aside class="sidebar">
+            <div class="brand">
+              <img src="../media/nerv-marketplace-icon.png" alt="NERV logo" class="brand-mark" />
+              <div>
+                <div class="brand-kicker">Magi Console</div>
+                <h1>NERV CODE</h1>
+              </div>
+            </div>
+
+            <nav class="nav-group">
+              <div class="nav-label">Primary</div>
+              <button class="nav-item nav-item--active">Conversation</button>
+              <button class="nav-item">Sessions</button>
+              <button class="nav-item">Artifacts</button>
+              <button class="nav-item">Plans</button>
+            </nav>
+
+            <section class="nav-group">
+              <div class="nav-label">Recent Threads</div>
+              <div class="thread-card">
+                <span class="thread-tag">ACTIVE</span>
+                <strong>refactor auth middleware</strong>
+                <p>Patch landing sequence and keep tests green.</p>
+              </div>
+              <div class="thread-list">
+                <button class="thread-item">review PR 218</button>
+                <button class="thread-item">migrate settings schema</button>
+                <button class="thread-item">debug MCP transport</button>
+              </div>
+            </section>
+
+            <div class="sidebar-footer">
+              <div class="user-chip">
+                <img src="../media/nerv-toolbar-icon.png" alt="" />
+                <div>
+                  <strong>Operator / user</strong>
+                  <span>Sync status: online</span>
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          <section class="chat-stage">
+            <header class="chat-header">
+              <div>
+                <div class="eyebrow">Command Session 04</div>
+                <h2>Conversation Core</h2>
+              </div>
+              <div class="header-pills">
+                <span class="pill">MiniMax M2.7</span>
+                <span class="pill">Plan Mode On</span>
+                <span class="pill pill--alert">1 approval pending</span>
+              </div>
+            </header>
+
+            <section class="hero-panel">
+              <img src="../media/nerv-logo-transparent.png" alt="NERV emblem" class="hero-logo" />
+              <div class="hero-copy">
+                <div class="hero-kicker">Tactical Dialogue Interface</div>
+                <h3>Build, inspect, and operate from one conversation surface.</h3>
+                <p>
+                  Inspired by dashboard-style AI workspaces, but tuned for a darker NERV command
+                  center look with stronger status hierarchy and more readable chat flow.
+                </p>
+              </div>
+            </section>
+
+            <section class="transcript">
+              <article class="message message--user">
+                <div class="message-meta">
+                  <span>Operator</span>
+                  <time>08:42</time>
+                </div>
+                <div class="message-body">
+                  Can you prepare a cleaner VS Code chat layout based on the dashboard concept, but
+                  make it feel more like NERV?
+                </div>
+              </article>
+
+              <article class="message message--assistant">
+                <div class="message-meta">
+                  <span>MELCHIOR-1</span>
+                  <time>08:42</time>
+                </div>
+                <div class="message-body">
+                  I can take the dashboard structure and shift it toward a tactical command interface:
+                  flatter dark panels, more structural lines, more meaningful status cards, and the
+                  NERV red as the only hot accent.
+                </div>
+                <div class="message-tags">
+                  <span>layout</span>
+                  <span>theme</span>
+                  <span>preview</span>
+                </div>
+              </article>
+
+              <article class="message message--assistant message--code">
+                <div class="message-meta">
+                  <span>CASPER-3</span>
+                  <time>08:43</time>
+                </div>
+                <div class="message-body">
+                  <pre><code>.chat-shell {
+  grid-template-columns: 240px 1fr 300px;
+  background: linear-gradient(180deg, #0c0d10, #08090b);
+  border: 1px solid rgba(215, 53, 60, 0.24);
+}</code></pre>
+                </div>
+              </article>
+            </section>
+
+            <footer class="composer">
+              <div class="composer-toolbar">
+                <span class="tool-chip">Workspace Context</span>
+                <span class="tool-chip">Tools Ready</span>
+                <span class="tool-chip">MCP Online</span>
+              </div>
+              <div class="composer-box">
+                <div class="composer-placeholder">
+                  Ask NERV CODE to review code, plan edits, or run a deployment sequence...
+                </div>
+                <button class="send-button">Dispatch</button>
+              </div>
+            </footer>
+          </section>
+
+          <aside class="intel-rail">
+            <section class="intel-card intel-card--highlight">
+              <div class="intel-label">Status Matrix</div>
+              <div class="stat-grid">
+                <div>
+                  <span>Context</span>
+                  <strong>82%</strong>
+                </div>
+                <div>
+                  <span>Tools</span>
+                  <strong>12</strong>
+                </div>
+                <div>
+                  <span>Agents</span>
+                  <strong>03</strong>
+                </div>
+                <div>
+                  <span>Risk</span>
+                  <strong>LOW</strong>
+                </div>
+              </div>
+            </section>
+
+            <section class="intel-card">
+              <div class="intel-label">Mission Queue</div>
+              <ul class="queue-list">
+                <li><span class="dot dot--active"></span>Create preview mockup</li>
+                <li><span class="dot"></span>Review theme options</li>
+                <li><span class="dot"></span>Implement selected layout</li>
+              </ul>
+            </section>
+
+            <section class="intel-card">
+              <div class="intel-label">Tool Telemetry</div>
+              <div class="bar-chart">
+                <div class="bar"><span>Shell</span><i><b style="width: 88%"></b></i></div>
+                <div class="bar"><span>Search</span><i><b style="width: 64%"></b></i></div>
+                <div class="bar"><span>Patch</span><i><b style="width: 39%"></b></i></div>
+                <div class="bar"><span>MCP</span><i><b style="width: 51%"></b></i></div>
+              </div>
+            </section>
+
+            <section class="intel-card">
+              <div class="intel-label">Visual Notes</div>
+              <p>
+                This direction keeps the Behance dashboard framing, but trades the soft orange SaaS
+                feel for a sharper, high-contrast NERV control-room tone.
+              </p>
+            </section>
+          </aside>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>

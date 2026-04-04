@@ -1,7 +1,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/NERV-CODE-cc1418?style=for-the-badge&labelColor=0A0A0C" alt="NERV CODE" />
   <img src="https://img.shields.io/badge/MAGI_SYSTEM-ONLINE-2D8B46?style=for-the-badge&labelColor=0A0A0C" alt="MAGI SYSTEM ONLINE" />
-  <img src="https://img.shields.io/badge/version-序:1.0.0-D4494F?style=for-the-badge&labelColor=0A0A0C" alt="Version" />
+  <img src="https://img.shields.io/badge/version-破:1.1.0-D4494F?style=for-the-badge&labelColor=0A0A0C" alt="Version" />
 </p>
 
 <p align="center">
@@ -27,6 +27,51 @@
 <p align="center">
   <a href="./README.zh-CN.md">中文文档</a>
 </p>
+
+---
+
+## Interface Preview
+
+<p align="center">
+  <img src="vscode-extension/design-preview/NERV_CODE-preview.png" alt="NERV CODE Main Interface" width="700"/>
+</p>
+
+<p align="center">
+  <img src="vscode-extension/design-preview/nerv-sidecar-preview.png" alt="NERV CODE Sidecar Panel" width="340"/>
+  <img src="vscode-extension/design-preview/nerv-dashboard-preview.png" alt="NERV CODE Dashboard" width="340"/>
+</p>
+
+> Live interactive previews: [`design-preview/NERV_CODE.html`](vscode-extension/design-preview/NERV_CODE.html) · [`nerv-sidecar-preview.html`](vscode-extension/design-preview/nerv-sidecar-preview.html) · [`nerv-dashboard-preview.html`](vscode-extension/design-preview/nerv-dashboard-preview.html)
+
+---
+
+## What's New — 破:1.1.0 (You Can Not Advance)
+
+### VS Code Extension — Major Overhaul
+
+#### New Features
+
+| Feature | Description |
+|---------|-------------|
+| **Extended Thinking** | Collapsible `<thinking>` blocks show Claude's reasoning process inline |
+| **Usage & Cost Tracking** | Per-turn cost display, session cumulative cost (USD), quota utilization monitor |
+| **Todo / Task Panel** | Real-time task list synced from backend `task` events |
+| **Slash Command Autocomplete** | `/` popup with fuzzy filtering of all available slash commands |
+| **Tool Denylist** | Fine-grained tool control — block individual tools, persisted across sessions |
+| **Parallel Sessions** | Open and switch between multiple concurrent Claude sessions |
+| **Permission Mode Toggle** | UI toggle between `default` / `acceptEdits` / `bypassPermissions` modes |
+| **Login Screen** | OAuth login flow (Anthropic account / Console) integrated into the sidebar |
+| **History Restore** | Restore previous session conversations with context carryover |
+| **Model Switch Carryover** | Conversation history carries over automatically when switching models |
+| **Third-Party Model Detection** | Profiles with custom `ANTHROPIC_BASE_URL` are tagged as third-party |
+
+#### UI Improvements
+
+- Full **Markdown renderer** built-in: code blocks with diff highlighting, tables, lists, inline formatting
+- MCP server panel with live status
+- Tools panel for managing active tools
+- Optimistic user message rendering (instant display while backend processes)
+- Improved activity log with timestamps
 
 ---
 
@@ -213,9 +258,9 @@ Custom NERV emblem with fig leaf silhouette, rendered in NERV red. Greeting:
 
 | Phase | Version | Codename | Status | Description |
 |-------|---------|----------|--------|-------------|
-| **序** | 1.0.0 | You Are (Not) Alone | **CURRENT** | Initial open-source release. Source restoration + NERV theming. |
-| **破** | 2.0.0 | You Can (Not) Advance | Planned | Extended theming (error screens, permission prompts, lifecycle messages). Plugin system. |
-| **Q** | 3.0.0 | You Can (Not) Redo | Planned | Major refactoring. Custom MAGI consensus mode for multi-agent. |
+| **序** | 1.0.0 | You Are (Not) Alone | Released | Initial open-source release. Source restoration + NERV theming. |
+| **破** | 1.1.0 | You Can (Not) Advance | **CURRENT** | VS Code extension overhaul: Thinking Mode, Usage Tracking, Slash Autocomplete, Parallel Sessions, and more. |
+| **Q** | 2.0.0 | You Can (Not) Redo | Planned | Major refactoring. Custom MAGI consensus mode for multi-agent. |
 | **終** | 3.0+1.0 | Thrice Upon a Time | Planned | Feature-complete. Stable release. Full NERV integration. |
 
 ---

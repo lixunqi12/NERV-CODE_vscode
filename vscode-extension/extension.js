@@ -5,6 +5,10 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const { randomUUID } = require('crypto');
 
+const _NERV_LOG = path.join(os.homedir(), 'nerv-debug.log');
+function _log(m) { try { fs.appendFileSync(_NERV_LOG, '[' + new Date().toISOString() + '] ' + m + '\n'); } catch(_){} }
+_log('=== extension.js loaded ===');
+
 const VIEW_CONTAINER_ID = 'nerv-code-sidebar';
 const VIEW_ID = 'nerv-code.sidebarView';
 const VIEW_TITLE = 'NERV CODE';
@@ -292,6 +296,7 @@ function stripProfileSecrets(profile) {
     label: profile.label,
     model: profile.model,
     description: profile.description,
+    isThirdParty: Boolean(profile.env && profile.env.ANTHROPIC_BASE_URL),
   };
 }
 
@@ -323,37 +328,57 @@ function sanitizeThinkingMode(value) {
     : 'adaptive';
 }
 
+/**
+ * 创建初始状态对象
+ * 包含所有 UI 和后端交互需要的状态字段
+ * @returns {object} 初始状态对象
+ */
 function createInitialState() {
   return {
     cwd: normalizePath(getWorkingDirectory()),
-    backendStatus: 'idle',
-    sessionState: 'idle',
-    busy: false,
-    sessionId: null,
-    runtime: null,
-    account: null,
-    rateLimit: null,
-    pendingPermission: null,
-    lastError: null,
-    lastResult: null,
-    messages: [],
-    activity: [],
-    stderr: [],
-    ideContext: collectIdeContext(),
-    availableModels: [],
-    modelProfiles: [],
-    defaultProfileId: null,
-    activeProfileId: null,
-    selectedModel: 'default',
-    streamingAssistantText: '',
-    pendingModelValue: null,
-    pendingThinkingMode: null,
-    interactionStatus: null,
-    ideContextEnabled: true,
-    planModeEnabled: false,
-    thinkingMode: 'adaptive',
-    sessionHistory: [],
-    historyPreview: null,
+    backendStatus: 'idle',     // 后端状态: idle|starting|online|closed|error
+    sessionState: 'idle',      // 会话状态: idle|running|requires_action
+    busy: false,               // 是否正在处理
+    sessionId: null,           // 当前会话 ID
+    runtime: null,             // 运行时信息（模型、工具、MCP 等）
+    account: null,             // 账户信息
+    rateLimit: null,           // 频率限制信息
+    pendingPermission: null,   // 待审批的工具权限请求
+    lastError: null,           // 最后一次错误信息
+    lastResult: null,          // 最后一次回合结果
+    messages: [],              // 消息历史记录
+    activity: [],              // 操作日志
+    stderr: [],                // 标准错误输出
+    ideContext: collectIdeContext(), // IDE 上下文
+    availableModels: [],       // 可用模型列表
+    modelProfiles: [],         // 模型配置列表
+    defaultProfileId: null,    // 默认模型配置 ID
+    activeProfileId: null,     // 当前激活的模型配置 ID
+    selectedModel: 'default',  // 选中的模型
+    streamingAssistantText: '', // 流式回复文本
+    streamingThinkingText: '',  // 流式思考过程文本
+    pendingModelValue: null,   // 待应用的模型值
+    pendingThinkingMode: null, // 待应用的思考模式
+    interactionStatus: null,   // 交互状态指示
+    ideContextEnabled: true,   // IDE 上下文是否启用
+    planModeEnabled: false,    // Plan 模式是否启用
+    thinkingMode: 'adaptive',  // 思考模式
+    sessionHistory: [],        // 会话历史归档
+    historyPreview: null,      // 历史预览内容
+    /* ── Usage 追踪 ── */
+    usageHistory: [],          // 每轮 usage 记录 [{cost, durationMs, durationApiMs, turnIndex, timestamp}]
+    totalCostUsd: 0,           // 会话累计花费
+    totalTurns: 0,             // 会话累计轮数
+    utilization: null,         // 配额数据 {five_hour, seven_day, seven_day_sonnet, extra_usage}
+    /* ── 新增状态字段 ── */
+    toolDenylist: [],          // 工具拒绝列表（精细工具控制）
+    todos: [],                 // 任务列表（从后端 task 事件收集）
+    agents: [],                // 子代理列表（Agent 子进程追踪）
+    hooks: [],                 // Hooks 事件日志
+    parallelSessions: [],      // 并行会话列表
+    activeSessionId: null,     // 当前活动的会话 ID（多会话模式）
+    loginInProgress: false,    // Anthropic OAuth login in progress
+    pendingLoginForModel: null, // Set when Claude model switch failed - triggers login screen
   };
 }
 
@@ -555,18 +580,36 @@ function formatLaunchError(error, launchSpec) {
   return 'Unknown backend launch error';
 }
 
+/**
+ * 从助手消息中提取文本内容
+ * 同时提取 thinking（思考过程）和 text（正文）内容
+ * 如果有 thinking 块，用 <thinking> 标签包裹以便前端解析
+ */
 function extractAssistantText(message) {
   if (!message || !Array.isArray(message.content)) {
     return '';
   }
 
-  const parts = [];
+  const thinkingParts = [];
+  const textParts = [];
   for (const block of message.content) {
+    // 提取思考过程内容
+    if (block?.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.trim()) {
+      thinkingParts.push(block.thinking.trim());
+    }
+    // 提取正文内容
     if (block?.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
-      parts.push(block.text.trim());
+      textParts.push(block.text.trim());
     }
   }
-  return parts.join('\n\n').trim();
+
+  let result = '';
+  // 如果有思考过程，用 <thinking> 标签包裹
+  if (thinkingParts.length > 0) {
+    result += `<thinking>${thinkingParts.join('\n\n')}</thinking>\n\n`;
+  }
+  result += textParts.join('\n\n');
+  return result.trim();
 }
 
 function summarizeRuntime(message) {
@@ -617,6 +660,7 @@ class NervCodeController {
     this.state = createInitialState();
     this.modelProfiles = [];
     this.sessionHistory = this.loadSessionHistory();
+    _log('constructor: sessionHistory count=' + this.sessionHistory.length);
     this.historyPreviewId = null;
     this.activeProfileId = null;
     this.activeEnvOverrides = {};
@@ -627,7 +671,15 @@ class NervCodeController {
       this.context.workspaceState.get('nerv-code.thinkingMode', 'adaptive'),
     );
     this.pendingThinkingMode = null;
+    this.permissionMode = this.context.workspaceState.get('nerv-code.permissionMode', 'default');
     this.planModeEnabled = false;
+    /* ── 新增功能字段 ── */
+    this.toolDenylist = this.context.workspaceState.get('nerv-code.toolDenylist', []);  // 工具拒绝列表（持久化）
+    this.todos = [];                   // 当前任务列表（从后端 task 事件收集）
+    this.agents = [];                  // 子代理追踪列表
+    this.hooks = [];                   // Hooks 事件日志（最近 30 条）
+    this.parallelSessions = [];        // 并行会话元数据列表
+    this.activeSessionId = null;       // 当前活动会话 ID
     this.applyInteractionStateToState();
     this.reloadModelProfiles();
     this.syncHistoryState();
@@ -647,6 +699,7 @@ class NervCodeController {
   }
 
   resolveWebviewView(webviewView) {
+    _log('resolveWebviewView called');
     this.view = webviewView;
     this.webviewReady = false;
 
@@ -658,6 +711,7 @@ class NervCodeController {
     webviewView.webview.html = this.getHtml(webviewView.webview);
 
     webviewView.webview.onDidReceiveMessage(message => {
+      _log('onDidReceiveMessage: type=' + message?.type);
       void this.handleWebviewMessage(message);
     });
 
@@ -728,16 +782,51 @@ class NervCodeController {
     this.postState();
   }
 
+  async restoreHistoryEntry(id) {
+    const entry = this.sessionHistory.find(item => item.id === id);
+    if (!entry || !Array.isArray(entry.messages) || entry.messages.length === 0) {
+      return;
+    }
+
+    await this.archiveCurrentSession();
+    await this.restartSession();
+
+    this.state.messages = entry.messages.map(msg => ({
+      id: msg.id || randomUUID(),
+      role: msg.role,
+      text: msg.text,
+      tone: msg.tone || msg.role,
+      timestamp: msg.timestamp || new Date().toISOString(),
+    }));
+
+    this.historyPreviewId = null;
+    this.syncHistoryState();
+    this.appendActivity('info', `Restored session: ${entry.title}`);
+    this.postState();
+    this.ensureProcess();
+  }
+
   clearHistoryPreview() {
     this.historyPreviewId = null;
     this.syncHistoryState();
     this.postState();
   }
 
+  /**
+   * 将交互层状态同步到主状态对象
+   * 确保 webview 能收到最新的控制状态
+   */
   applyInteractionStateToState() {
     this.state.ideContextEnabled = this.ideContextEnabled;
     this.state.planModeEnabled = this.planModeEnabled;
     this.state.thinkingMode = this.thinkingMode;
+    this.state.permissionMode = this.permissionMode;
+    this.state.toolDenylist = this.toolDenylist || [];       // 工具拒绝列表
+    this.state.todos = this.todos || [];                     // 任务列表
+    this.state.agents = this.agents || [];                   // 子代理列表
+    this.state.hooks = this.hooks || [];                     // Hooks 事件
+    this.state.parallelSessions = this.parallelSessions || []; // 并行会话
+    this.state.activeSessionId = this.activeSessionId || this.state.sessionId; // 活动会话
   }
 
   syncTransientStateToState() {
@@ -839,6 +928,17 @@ class NervCodeController {
       return;
     }
 
+    // If we failed switching to a non-third-party model (Claude), show login screen
+    const targetIsThirdParty = Boolean(change.targetEnvOverrides?.ANTHROPIC_BASE_URL);
+    if (!targetIsThirdParty) {
+      this.state.pendingLoginForModel = {
+        profileId: change.targetProfileId,
+        model: change.targetModel,
+        label: change.label,
+        envOverrides: change.targetEnvOverrides,
+      };
+    }
+
     this.activeProfileId = change.previous.activeProfileId;
     this.activeEnvOverrides = { ...(change.previous.activeEnvOverrides || {}) };
     this.state.selectedModel = change.previous.selectedModel || 'default';
@@ -895,6 +995,9 @@ class NervCodeController {
   clearStreamingAssistant() {
     this.streamingTextBlocks.clear();
     this.state.streamingAssistantText = '';
+    this.streamingThinkingText = '';              // 清除思考过程文本
+    this.state.streamingThinkingText = '';         // 清除状态中的思考文本
+    this.streamingBlockTypes = {};                 // 清除块类型追踪
   }
 
   updateStreamingAssistant(index, text) {
@@ -1131,6 +1234,24 @@ class NervCodeController {
     }
   }
 
+  async handlePermissionModeSelection(value) {
+    const validModes = ['default', 'acceptEdits', 'auto', 'bypassPermissions', 'plan'];
+    const nextMode = validModes.includes(value) ? value : 'default';
+    if (this.permissionMode === nextMode) {
+      return;
+    }
+    this.permissionMode = nextMode;
+    this.applyInteractionStateToState();
+    await this.context.workspaceState.update('nerv-code.permissionMode', nextMode);
+    this.appendActivity('info', `Permission mode changed to "${nextMode}". Restarting session...`);
+    this.setInteractionStatus('permission', 'pending', `Switching to permission mode: ${nextMode}...`);
+    this.postState();
+    await this.restartSession();
+    this.clearInteractionStatus('permission');
+    this.setInteractionStatus('permission', 'success', `Permission mode: ${nextMode}`);
+    this.postState();
+  }
+
   async handleIdeContextToggle(enabled) {
     this.ideContextEnabled = Boolean(enabled);
     this.applyInteractionStateToState();
@@ -1226,6 +1347,11 @@ class NervCodeController {
     this.postState();
 
     if (requiresRestart) {
+      // Save conversation history for context carryover into the new session
+      if (this.state.messages.length > 0) {
+        this._contextCarryover = this.buildContextCarryoverSummary(this.state.messages, label);
+        this._carryoverMessages = [...this.state.messages];
+      }
       await this.restartSession();
       return;
     }
@@ -1263,6 +1389,7 @@ class NervCodeController {
 
   async restartSession() {
     const previousMessages = this.state.messages.length;
+    const carryoverMessages = this._carryoverMessages || null;
     await this.stopProcess('other');
     this.state = createInitialState();
     this.clearStreamingAssistant();
@@ -1270,14 +1397,101 @@ class NervCodeController {
     this.planModeEnabled = false;
     this.applyInteractionStateToState();
     this.syncHistoryState();
-    this.appendActivity(
-      'info',
-      previousMessages > 0
-        ? 'Session restarted. MAGI handshake reset.'
-        : 'Session ready. MAGI handshake reset.',
-    );
+    // Restore old messages in transcript so the user sees continuity
+    if (carryoverMessages && carryoverMessages.length > 0) {
+      this.state.messages = carryoverMessages.map(msg => ({
+        ...msg,
+        tone: msg.tone === 'operator' ? 'operator' : (msg.tone || msg.role),
+      }));
+      this.appendActivity('info', 'Model switched. Carrying conversation context into new session...');
+    } else {
+      this.appendActivity(
+        'info',
+        previousMessages > 0
+          ? 'Session restarted. MAGI handshake reset.'
+          : 'Session ready. MAGI handshake reset.',
+      );
+    }
+    this._carryoverMessages = null;
     this.postState();
     this.ensureProcess();
+  }
+
+  /**
+   * Spawn a clean CLI process to run `auth login` against Anthropic directly.
+   * This does NOT touch the current model session — it opens the browser for OAuth,
+   * stores the token in ~/.claude/, and reports success/failure back to the UI.
+   */
+  async spawnAuthLogin(method = 'claudeai') {
+    const launchSpec = resolveBackendLaunchSpec();
+    if (!launchSpec.exists) {
+      this.appendMessage('system', 'CLI not found. Cannot start login flow.', 'system');
+      this.postState();
+      return;
+    }
+
+    this.appendMessage('system', 'Opening Anthropic login in your browser...', 'system');
+    this.state.loginInProgress = true;
+    this.postState();
+
+    const args = [...launchSpec.args, 'auth', 'login'];
+    if (method === 'console') args.push('--console');
+    else args.push('--claudeai');
+    const cleanEnv = { ...process.env };
+    // Remove proxy overrides so the CLI talks to Anthropic directly
+    delete cleanEnv.ANTHROPIC_BASE_URL;
+    delete cleanEnv.ANTHROPIC_AUTH_TOKEN;
+    delete cleanEnv.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST;
+
+    const child = spawn(launchSpec.command, args, {
+      cwd: getWorkingDirectory(),
+      env: cleanEnv,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', chunk => { stdout += chunk; });
+    child.stderr.on('data', chunk => { stderr += chunk; });
+
+    child.on('close', code => {
+      this.state.loginInProgress = false;
+      if (code === 0) {
+        this.appendMessage('system', 'Login successful! Switching to Claude model...', 'system');
+        this.appendActivity('info', 'Anthropic OAuth login completed.');
+        // Auto-retry the model switch that triggered login
+        const pending = this.state.pendingLoginForModel;
+        this.state.pendingLoginForModel = null;
+        if (pending) {
+          setTimeout(() => {
+            void this.handleModelSelection(pending.profileId || pending.model || 'default');
+          }, 500);
+        }
+      } else {
+        const detail = stderr.trim() || stdout.trim() || `Process exited with code ${code}`;
+        this.appendMessage('system', `Login failed: ${detail}`, 'system');
+        this.appendActivity('error', `Auth login failed: ${detail}`);
+      }
+      this.postState();
+    });
+
+    child.on('error', err => {
+      this.state.loginInProgress = false;
+      this.appendMessage('system', `Login process error: ${err.message}`, 'system');
+      this.postState();
+    });
+  }
+
+  /**
+   * Cancel pending login — dismiss login screen, restore previous model profile, restart backend.
+   */
+  cancelPendingLogin() {
+    this.state.pendingLoginForModel = null;
+    this.state.lastError = null;
+    this.appendActivity('info', 'Login cancelled. Restoring previous model.');
+    // Restore the previous profile's process
+    this.ensureProcess();
+    this.postState();
   }
 
   dispose() {
@@ -1293,10 +1507,12 @@ class NervCodeController {
         this.focusInput();
         break;
       case 'sendPrompt':
-        this.view?.webview.postMessage({
-          type: 'promptSubmission',
-          result: await this.sendPrompt(message.text),
-        });
+        _log('handleWebviewMessage: sendPrompt text=' + JSON.stringify(message.text));
+        {
+          const _r = await this.sendPrompt(message.text);
+          _log('handleWebviewMessage: sendPrompt result=' + JSON.stringify(_r));
+          this.view?.webview.postMessage({ type: 'promptSubmission', result: _r });
+        }
         break;
       case 'toggleIdeContext':
         await this.handleIdeContextToggle(Boolean(message.enabled));
@@ -1309,6 +1525,19 @@ class NervCodeController {
         break;
       case 'selectModel':
         await this.handleModelSelection(message.value);
+        break;
+      case 'selectPermissionMode':
+        await this.handlePermissionModeSelection(message.value);
+        break;
+      case 'requestUsage':
+        // Usage data is tracked locally; no backend request needed
+        this.postState();
+        break;
+      case 'login':
+        await this.spawnAuthLogin(message.method || 'claudeai');
+        break;
+      case 'loginCancel':
+        this.cancelPendingLogin();
         break;
       case 'restart':
         await this.restartSession();
@@ -1327,11 +1556,36 @@ class NervCodeController {
       case 'openHistoryEntry':
         await this.openHistoryEntry(message.id);
         break;
+      case 'restoreHistoryEntry':
+        await this.restoreHistoryEntry(message.id);
+        break;
       case 'clearHistoryPreview':
         this.clearHistoryPreview();
         break;
       case 'focusInputAck':
         this.pendingFocusInput = false;
+        break;
+      /* ── 工具精细控制消息 ── */
+      case 'updateToolPermission':
+        // 更新单个工具的允许/拒绝状态
+        await this.updateToolPermission(message.toolName, message.allowed);
+        break;
+      case 'resetToolPermissions':
+        // 重置所有工具权限
+        await this.resetToolPermissions();
+        break;
+      /* ── 多会话并行消息 ── */
+      case 'addParallelSession':
+        // 创建新的并行会话
+        await this.addParallelSession();
+        break;
+      case 'switchSession':
+        // 切换到指定会话
+        await this.switchSession(message.id);
+        break;
+      case 'closeSession':
+        // 关闭指定会话
+        await this.closeSession(message.id);
         break;
       default:
         break;
@@ -1348,12 +1602,16 @@ class NervCodeController {
 
   ensureProcess() {
     if (this.process && this.process.exitCode == null && !this.process.killed) {
+      _log('ensureProcess: already alive pid=' + this.process.pid);
       return;
     }
+    _log('ensureProcess: no alive process');
 
     const launchSpec = resolveBackendLaunchSpec();
+    _log('ensureProcess: launchSpec=' + JSON.stringify({ type: launchSpec.type, exists: launchSpec.exists, label: launchSpec.label, command: launchSpec.command, args: launchSpec.args }));
     if (!launchSpec.exists) {
       const message = `Configured NERV CLI not found at ${launchSpec.label}`;
+      _log('ensureProcess: NOT FOUND: ' + message);
       this.state.backendStatus = 'error';
       this.state.lastError = message;
       this.appendActivity(
@@ -1364,6 +1622,7 @@ class NervCodeController {
       return;
     }
 
+    _log('ensureProcess: calling startProcess');
     this.startProcess(launchSpec);
   }
 
@@ -1378,7 +1637,11 @@ class NervCodeController {
       'stream-json',
       '--include-partial-messages',
       '--verbose',
+      '--permission-mode',
+      this.permissionMode || 'default',
     ];
+
+    _log('startProcess: cmd=' + launchSpec.command + ' args=' + JSON.stringify(args) + ' cwd=' + cwd);
 
     this.isStopping = false;
     this.stdoutBuffer = '';
@@ -1400,6 +1663,7 @@ class NervCodeController {
     });
 
     this.process = child;
+    _log('startProcess: spawned pid=' + child.pid);
     if (this.pendingModelChange?.targetModel) {
       this.pendingModelSelection = this.pendingModelChange.targetModel;
     } else if (this.getSelectedProfile()) {
@@ -1411,14 +1675,18 @@ class NervCodeController {
     );
 
     child.stdout.on('data', chunk => {
-      this.handleStdout(chunk.toString());
+      const s = chunk.toString();
+      _log('stdout(' + s.length + '): ' + s.slice(0, 300));
+      this.handleStdout(s);
     });
 
     child.stderr.on('data', chunk => {
+      _log('stderr: ' + chunk.toString().slice(0, 500));
       this.handleStderr(chunk.toString());
     });
 
     child.on('error', error => {
+      _log('child ERROR: ' + (error?.message || error) + ' code=' + error?.code);
       const detail = formatLaunchError(error, this.lastLaunchSpec);
       this.state.backendStatus = 'error';
       this.state.lastError = detail;
@@ -1433,6 +1701,7 @@ class NervCodeController {
     });
 
     child.on('close', (code, signal) => {
+      _log('child CLOSE: code=' + code + ' signal=' + signal);
       const expectedStop = this.isStopping;
       this.process = null;
       this.stdoutBuffer = '';
@@ -1535,21 +1804,35 @@ class NervCodeController {
   }
 
   async sendPrompt(text, options = {}) {
+    console.log('[NERV-DEBUG] sendPrompt called, text:', text);
     const prompt = typeof text === 'string' ? text.trim() : '';
     if (!prompt) {
+      console.log('[NERV-DEBUG] prompt is empty');
       return buildPromptSubmissionResult(false, 'Prompt is empty.');
     }
 
     if (this.state.busy || this.state.pendingPermission) {
+      console.log('[NERV-DEBUG] blocked: busy=', this.state.busy, 'pending=', this.state.pendingPermission);
       this.appendActivity('warn', 'MAGI is still processing the previous turn.');
       this.postState();
       return buildPromptSubmissionResult(false, 'MAGI is still processing the previous turn.');
     }
 
     this.refreshIdeContext();
+    console.log('[NERV-DEBUG] before ensureProcess, process exists:', !!this.process);
     this.ensureProcess();
+    console.log('[NERV-DEBUG] after ensureProcess, process exists:', !!this.process, 'backendStatus:', this.state.backendStatus, 'lastError:', this.state.lastError);
     if (!this.process) {
+      console.log('[NERV-DEBUG] no process, returning not ready');
       return buildPromptSubmissionResult(false, 'MAGI backend is not ready yet.');
+    }
+
+    // Prepend context carryover from model switch (if any) to the first user message
+    let effectivePrompt = prompt;
+    if (this._contextCarryover && options.raw !== true) {
+      effectivePrompt = this._contextCarryover + '\n\n---\n\n[User continues]:\n' + prompt;
+      this._contextCarryover = null;
+      this.appendActivity('info', 'Previous conversation context attached to this message.');
     }
 
     if (options.appendToTranscript !== false) {
@@ -1565,7 +1848,7 @@ class NervCodeController {
       type: 'user',
       message: {
         role: 'user',
-        content: options.raw ? prompt : this.buildPromptWithIdeContext(prompt),
+        content: options.raw ? effectivePrompt : this.buildPromptWithIdeContext(effectivePrompt),
       },
       parent_tool_use_id: null,
       session_id: this.state.sessionId || '',
@@ -1693,6 +1976,15 @@ class NervCodeController {
         break;
       case 'tool_use_summary':
         this.appendActivity('info', message.summary || 'Tool activity completed.');
+        // 检测 Agent 子代理工具使用并追踪
+        if (message.tool_name === 'Agent' || (message.summary && message.summary.includes('agent'))) {
+          this.trackAgent({
+            id: message.tool_use_id || randomUUID(),
+            description: message.summary || 'Agent sub-process',
+            status: 'completed',
+            duration: message.duration_ms ? `${message.duration_ms}ms` : null,
+          });
+        }
         break;
       case 'auth_status':
         this.handleAuthStatus(message);
@@ -1817,16 +2109,36 @@ class NervCodeController {
         }
         break;
       case 'task_started':
+        // 任务开始 —— 添加到任务列表并记录日志
         this.appendActivity('info', `Task started: ${message.description}`);
+        this.addTodo({
+          id: message.task_id || randomUUID(),
+          content: message.description || 'Task',
+          activeForm: message.description || 'Running task',
+          status: 'in_progress',
+          startedAt: new Date().toISOString(),
+        });
         break;
       case 'task_progress':
+        // 任务进度更新
         this.appendActivity('info', message.summary || message.description || 'Task is running.');
+        if (message.task_id) {
+          this.updateTodo(message.task_id, {
+            activeForm: message.summary || message.description || 'Running task',
+          });
+        }
         break;
       case 'task_notification':
+        // 任务完成/失败通知
         this.appendActivity(
           message.status === 'failed' ? 'error' : 'info',
           message.summary || `Task ${message.status}.`,
         );
+        if (message.task_id) {
+          this.updateTodo(message.task_id, {
+            status: message.status === 'failed' ? 'error' : 'completed',
+          });
+        }
         break;
       case 'post_turn_summary':
         if (message.is_noteworthy) {
@@ -1843,8 +2155,34 @@ class NervCodeController {
         );
         break;
       case 'hook_started':
+        // Hook 开始执行 —— 记录到 hooks 日志和操作日志
+        this.appendHook({
+          id: message.hook_id || randomUUID(),
+          name: message.hook_name || message.hook || 'Hook',
+          type: message.hook_type || 'unknown',
+          status: 'running',
+          startedAt: new Date().toISOString(),
+        });
+        this.appendActivity('info', `Hook started: ${message.hook_name || message.hook || 'Hook'}`);
+        break;
       case 'hook_progress':
+        // Hook 进度更新
+        if (message.hook_id) {
+          this.updateHook(message.hook_id, { output: message.output || message.content });
+        }
+        break;
       case 'hook_response':
+        // Hook 执行完成
+        if (message.hook_id) {
+          this.updateHook(message.hook_id, {
+            status: message.error ? 'error' : 'completed',
+            output: message.output || message.content,
+          });
+        }
+        this.appendActivity(
+          message.error ? 'warn' : 'info',
+          `Hook ${message.error ? 'failed' : 'completed'}: ${message.hook_name || message.hook || 'Hook'}`,
+        );
         break;
       default:
         break;
@@ -1869,6 +2207,10 @@ class NervCodeController {
     this.appendMessage('assistant', text, message.error ? 'error' : 'assistant');
   }
 
+  /**
+   * 处理流式事件
+   * 支持 text_delta（正文）和 thinking_delta（思考过程）
+   */
   handleStreamEvent(message) {
     if (!message?.event || typeof message.event !== 'object') {
       return;
@@ -1876,14 +2218,33 @@ class NervCodeController {
 
     if (message.event.type === 'message_start') {
       this.clearStreamingAssistant();
+      this.streamingThinkingText = '';  // 重置思考文本
       return;
     }
 
-    if (
-      message.event.type === 'content_block_delta' &&
-      message.event.delta?.type === 'text_delta'
-    ) {
-      this.updateStreamingAssistant(message.event.index, message.event.delta.text || '');
+    // content_block_start: 检测 thinking 块的开始
+    if (message.event.type === 'content_block_start') {
+      if (message.event.content_block?.type === 'thinking') {
+        // 标记当前块为 thinking 类型
+        this.streamingBlockTypes = this.streamingBlockTypes || {};
+        this.streamingBlockTypes[message.event.index] = 'thinking';
+      }
+      return;
+    }
+
+    if (message.event.type === 'content_block_delta') {
+      const delta = message.event.delta;
+      // 处理正文文本增量
+      if (delta?.type === 'text_delta') {
+        this.updateStreamingAssistant(message.event.index, delta.text || '');
+      }
+      // 处理思考过程增量
+      if (delta?.type === 'thinking_delta') {
+        this.streamingThinkingText = (this.streamingThinkingText || '') + (delta.thinking || '');
+        this.state.streamingThinkingText = this.streamingThinkingText;
+        // thinking_delta 可能在 text_delta 之前到达，需要单独推送状态
+        this.postState();
+      }
     }
   }
 
@@ -1901,10 +2262,12 @@ class NervCodeController {
   handleAuthStatus(message) {
     if (message.error) {
       this.appendActivity('error', message.error);
+      this.postState();
       return;
     }
     if (Array.isArray(message.output) && message.output.length > 0) {
       this.appendActivity('info', message.output.join(' '));
+      this.postState();
     }
   }
 
@@ -1917,6 +2280,21 @@ class NervCodeController {
       numTurns: message.num_turns,
       totalCostUsd: message.total_cost_usd,
     };
+
+    // Accumulate usage history
+    const turnCost = typeof message.total_cost_usd === 'number' ? message.total_cost_usd : 0;
+    const turnDuration = typeof message.duration_ms === 'number' ? message.duration_ms : 0;
+    const turnApiDuration = typeof message.duration_api_ms === 'number' ? message.duration_api_ms : 0;
+    this.state.usageHistory.push({
+      turnIndex: this.state.usageHistory.length + 1,
+      cost: turnCost,
+      durationMs: turnDuration,
+      durationApiMs: turnApiDuration,
+      timestamp: new Date().toISOString(),
+      isError: Boolean(message.is_error),
+    });
+    this.state.totalCostUsd += turnCost;
+    this.state.totalTurns = this.state.usageHistory.length;
 
     if (message.subtype !== 'success') {
       const detail =
@@ -1967,6 +2345,26 @@ class NervCodeController {
     this.postState();
   }
 
+  buildContextCarryoverSummary(messages, newModelLabel) {
+    const lines = [];
+    const limit = 40; // max messages to include
+    const recent = messages.slice(-limit);
+    for (const msg of recent) {
+      const speaker = msg.role === 'user' ? 'User' : 'Assistant';
+      const text = (msg.text || '').trim();
+      if (text) {
+        // Truncate very long messages
+        const truncated = text.length > 1200 ? text.slice(0, 1200) + '\n... [truncated]' : text;
+        lines.push(`[${speaker}]:\n${truncated}`);
+      }
+    }
+    return (
+      `[System: The user switched models to ${newModelLabel}. Below is the conversation history from the previous session. ` +
+      `Continue the conversation naturally, maintaining full context of what was discussed and any tasks in progress.]\n\n` +
+      lines.join('\n\n')
+    );
+  }
+
   appendMessage(role, text, tone) {
     const value = typeof text === 'string' ? text.trim() : '';
     if (!value) {
@@ -2001,6 +2399,192 @@ class NervCodeController {
     if (this.state.activity.length > 60) {
       this.state.activity = this.state.activity.slice(0, 60);
     }
+  }
+
+  /* ──────────────────────────────────────────────────────────
+   * Todo / 任务管理方法
+   * 追踪后端报告的任务进度，供 webview 渲染任务面板
+   * ────────────────────────────────────────────────────────── */
+
+  /** 添加一个新任务到任务列表 */
+  addTodo(todo) {
+    this.todos = this.todos || [];
+    // 避免重复添加
+    const existing = this.todos.find(t => t.id === todo.id);
+    if (existing) {
+      Object.assign(existing, todo);
+    } else {
+      this.todos.push(todo);
+    }
+    // 限制最多 50 条任务
+    if (this.todos.length > 50) {
+      this.todos = this.todos.slice(-50);
+    }
+  }
+
+  /** 更新指定任务的状态 */
+  updateTodo(taskId, updates) {
+    this.todos = this.todos || [];
+    const todo = this.todos.find(t => t.id === taskId);
+    if (todo) {
+      Object.assign(todo, updates);
+    }
+  }
+
+  /* ──────────────────────────────────────────────────────────
+   * Hooks 事件日志方法
+   * 记录 PreToolUse / PostToolUse 等钩子的执行状态
+   * ────────────────────────────────────────────────────────── */
+
+  /** 添加 Hook 事件记录 */
+  appendHook(hook) {
+    this.hooks = this.hooks || [];
+    this.hooks.unshift(hook);
+    if (this.hooks.length > 30) {
+      this.hooks = this.hooks.slice(0, 30);
+    }
+  }
+
+  /** 更新指定 Hook 的状态 */
+  updateHook(hookId, updates) {
+    this.hooks = this.hooks || [];
+    const hook = this.hooks.find(h => h.id === hookId);
+    if (hook) {
+      Object.assign(hook, updates);
+    }
+  }
+
+  /* ──────────────────────────────────────────────────────────
+   * Agent 子代理追踪方法
+   * 记录后端产生的子代理（Agent tool）运行状态
+   * ────────────────────────────────────────────────────────── */
+
+  /** 添加或更新子代理记录 */
+  trackAgent(agentInfo) {
+    this.agents = this.agents || [];
+    const existing = this.agents.find(a => a.id === agentInfo.id);
+    if (existing) {
+      Object.assign(existing, agentInfo);
+    } else {
+      this.agents.push(agentInfo);
+    }
+    if (this.agents.length > 20) {
+      this.agents = this.agents.slice(-20);
+    }
+  }
+
+  /* ──────────────────────────────────────────────────────────
+   * 工具精细控制方法
+   * 管理工具的 allowlist / denylist
+   * ────────────────────────────────────────────────────────── */
+
+  /** 更新单个工具的允许/拒绝状态 */
+  async updateToolPermission(toolName, allowed) {
+    this.toolDenylist = this.toolDenylist || [];
+    if (allowed) {
+      // 从拒绝列表中移除
+      this.toolDenylist = this.toolDenylist.filter(t => t !== toolName);
+    } else {
+      // 添加到拒绝列表
+      if (!this.toolDenylist.includes(toolName)) {
+        this.toolDenylist.push(toolName);
+      }
+    }
+    await this.context.workspaceState.update('nerv-code.toolDenylist', this.toolDenylist);
+    this.appendActivity('info', `Tool "${toolName}" ${allowed ? 'allowed' : 'denied'}.`);
+    this.applyInteractionStateToState();
+    this.postState();
+  }
+
+  /** 重置所有工具权限（清空拒绝列表） */
+  async resetToolPermissions() {
+    this.toolDenylist = [];
+    await this.context.workspaceState.update('nerv-code.toolDenylist', []);
+    this.appendActivity('info', 'All tool permissions reset to allowed.');
+    this.applyInteractionStateToState();
+    this.postState();
+  }
+
+  /* ──────────────────────────────────────────────────────────
+   * 多会话并行管理方法
+   * 支持同时运行多个 CLI 会话，通过标签页切换
+   * ────────────────────────────────────────────────────────── */
+
+  /** 添加新的并行会话 */
+  async addParallelSession() {
+    const newId = randomUUID();
+    // 归档当前会话状态
+    if (this.state.sessionId) {
+      this.parallelSessions = this.parallelSessions || [];
+      // 保存当前会话快照
+      const currentSnapshot = {
+        id: this.state.sessionId,
+        title: this.getSessionTitle(),
+        messages: [...this.state.messages],
+        model: this.state.runtime?.model || this.state.selectedModel,
+        createdAt: new Date().toISOString(),
+      };
+      // 如果当前会话不在列表中则添加
+      if (!this.parallelSessions.find(s => s.id === this.state.sessionId)) {
+        this.parallelSessions.push(currentSnapshot);
+      }
+    }
+    // 创建新会话
+    const newSession = {
+      id: newId,
+      title: `Session ${(this.parallelSessions?.length || 0) + 1}`,
+      messages: [],
+      model: this.state.runtime?.model || 'default',
+      createdAt: new Date().toISOString(),
+    };
+    this.parallelSessions = this.parallelSessions || [];
+    this.parallelSessions.push(newSession);
+    this.activeSessionId = newId;
+    // 重启进程开始新会话
+    this.appendActivity('info', `Created parallel session: ${newSession.title}`);
+    await this.restartSession();
+  }
+
+  /** 切换到指定的并行会话 */
+  async switchSession(sessionId) {
+    if (this.activeSessionId === sessionId) return;
+    // 保存当前会话消息
+    const currentIdx = this.parallelSessions?.findIndex(s => s.id === this.activeSessionId);
+    if (currentIdx >= 0) {
+      this.parallelSessions[currentIdx].messages = [...this.state.messages];
+    }
+    // 切换到目标会话
+    const target = this.parallelSessions?.find(s => s.id === sessionId);
+    if (!target) return;
+    this.activeSessionId = sessionId;
+    this.state.messages = target.messages || [];
+    this.appendActivity('info', `Switched to session: ${target.title}`);
+    await this.restartSession();
+  }
+
+  /** 关闭指定的并行会话 */
+  async closeSession(sessionId) {
+    this.parallelSessions = (this.parallelSessions || []).filter(s => s.id !== sessionId);
+    if (this.activeSessionId === sessionId) {
+      // 如果关闭的是当前活动会话，切换到第一个
+      if (this.parallelSessions.length > 0) {
+        await this.switchSession(this.parallelSessions[0].id);
+      } else {
+        this.activeSessionId = null;
+        await this.restartSession();
+      }
+    }
+    this.postState();
+  }
+
+  /** 获取当前会话标题（取第一条用户消息的前 20 字） */
+  getSessionTitle() {
+    const firstUserMsg = this.state.messages.find(m => m.role === 'user');
+    if (firstUserMsg) {
+      const text = firstUserMsg.text || '';
+      return text.length > 20 ? text.slice(0, 20) + '...' : text;
+    }
+    return 'New Session';
   }
 
   postState() {
@@ -2050,6 +2634,9 @@ class NervCodeController {
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'media', 'app.js'),
     );
+    const logoUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.context.extensionUri, 'media', 'nerv-marketplace-icon.png'),
+    );
     const nonce = randomUUID().replace(/-/g, '');
     const initialModels =
       this.state.availableModels.length > 0 ? this.state.availableModels : getBuiltinFallbackModels();
@@ -2074,11 +2661,14 @@ class NervCodeController {
   <body>
     <div class="shell">
       <header class="topbar">
-        <div class="topbar-spacer" aria-hidden="true"></div>
+        <div class="brand">
+          <span class="brand-mark">NERV CODE</span>
+          <span class="brand-sub">MAGI Sidecar Interface</span>
+        </div>
         <div class="toolbar-actions">
-          <button class="icon-button" id="historyButton" type="button" title="Session history" aria-label="Session history">↺</button>
-          <button class="icon-button" id="openSettingsButton" type="button" title="Settings" aria-label="Settings">⚙</button>
-          <button class="icon-button" id="newSessionButton" type="button" title="New conversation" aria-label="New conversation">＋</button>
+          <button class="icon-button" id="historyButton" type="button" title="Session history" aria-label="Session history">&#8634;</button>
+          <button class="icon-button" id="openSettingsButton" type="button" title="Settings" aria-label="Settings">&#9881;</button>
+          <button class="icon-button" id="newSessionButton" type="button" title="New conversation" aria-label="New conversation">+</button>
         </div>
       </header>
 
@@ -2102,8 +2692,12 @@ class NervCodeController {
         </div>
         <div class="details-tabs" id="detailsTabs">
           <button class="chip" data-panel="context" type="button" aria-pressed="false">IDE Context</button>
-          <button class="chip" data-panel="facts" type="button" aria-pressed="false">System State</button>
-          <button class="chip" data-panel="activity" type="button" aria-pressed="false">Operation Log</button>
+          <button class="chip" data-panel="facts" type="button" aria-pressed="false">System</button>
+          <button class="chip" data-panel="activity" type="button" aria-pressed="false">Log</button>
+          <button class="chip" data-panel="mcp" type="button" aria-pressed="false">MCP</button>
+          <button class="chip" data-panel="tools" type="button" aria-pressed="false">Tools</button>
+          <button class="chip" data-panel="todos" type="button" aria-pressed="false">Tasks</button>
+          <button class="chip" data-panel="usage" type="button" aria-pressed="false">Usage</button>
         </div>
         <div class="details-body">
           <div class="detail-panel hidden" id="contextPanel">
@@ -2114,6 +2708,18 @@ class NervCodeController {
           </div>
           <div class="detail-panel hidden" id="activityPanel">
             <div class="activity" id="activity"></div>
+          </div>
+          <div class="detail-panel hidden" id="mcpPanel">
+            <div class="mcp-content"></div>
+          </div>
+          <div class="detail-panel hidden" id="toolsPanel">
+            <div class="tools-content"></div>
+          </div>
+          <div class="detail-panel hidden" id="todosPanel">
+            <div class="todos-content"></div>
+          </div>
+          <div class="detail-panel hidden" id="usagePanel">
+            <div class="usage-content"></div>
           </div>
         </div>
       </section>
@@ -2131,74 +2737,90 @@ class NervCodeController {
         </div>
       </section>
 
+      <!-- 多会话标签栏 -->
+      <div class="session-tabs hidden" id="sessionTabs"></div>
+
       <main class="conversation-shell">
         <section class="welcome-card" id="welcomeCard">
-          <pre class="welcome-art" aria-hidden="true">
-                   ▄▄▄
-                   ▄▄███████
-            ▄     ▄████████   ▄
-           ▀█▄    ████████▀▄███████
-             ▀█▄ ▄███████████████████▄
-               ▀███████████████████████
-                 ▀███████████████████▀
-        ███  ▀█ ███▀█████████████▀▀
-        █▀██▄ █ ███▄█▀█████████▄▄
-        █  ▀███ ███ ▀  ███████████▄
-       ▄█▄   ▀█ ███▄▄██ ▀██████████
-     █          ███▀██████▀█████████
-     ▀█         ███ ███ ▀██▄▀██████▄
-      ██        ██████▄   ▀███▀█████▄
-       ██       ███ ▀███    ▀█  ▀███
-        ▀█▄                       ██
-          ▀█▄                   ▄▄█▀
-            ▀▀█▄▄▄▄        ▄▄▄▀▀▀
-                 ▀▀▀▀▀▀▀▀▀▀
-          </pre>
+          <img src="${logoUri}" alt="NERV logo" class="welcome-logo" />
           <p class="welcome-kicker">MAGI System v2.1.88</p>
           <p class="welcome-tagline">God's in his heaven. All's right with the world.</p>
           <p class="welcome-note" id="welcomeNote">
-            Send a prompt below. NERV CODE automatically attaches the current editor and workspace context.
+            Ready. IDE context on.
           </p>
         </section>
+
         <section class="transcript" id="transcript"></section>
       </main>
 
-      <footer class="composer">
-        <textarea
-          id="promptInput"
-          rows="2"
-          placeholder="Ask MAGI to inspect code, explain a file, or make a change..."
-        ></textarea>
-        <div class="composer-footer">
-          <div class="composer-controls">
-            <div class="composer-toolbar">
-              <div class="mode-strip">
-                <label class="chip-select chip-select--model" for="modelSelect">
-                  <span class="sr-only">Model</span>
-                  <select id="modelSelect">
-                    ${initialModelOptionsMarkup}
-                  </select>
-                </label>
-                <label class="chip-select chip-select--thinking" for="thinkingSelect">
-                  <span class="sr-only">Thinking</span>
-                  <select id="thinkingSelect">
-                    <option value="adaptive">Think Auto</option>
-                    <option value="off">Think Off</option>
-                    <option value="low">Think Low</option>
-                    <option value="medium">Think Med</option>
-                    <option value="high">Think High</option>
-                  </select>
-                </label>
-                <div class="mode-buttons">
-                  <button class="chip" id="planModeToggleButton" type="button" aria-pressed="false">Plan Mode</button>
-                  <button class="chip" id="ideContextToggleButton" type="button" aria-pressed="true">IDE Context</button>
-                  <button class="chip" id="panelToggleButton" type="button" aria-pressed="false">Panels</button>
-                </div>
-              </div>
-            </div>
-            <span class="composer-hint" id="sessionMeta">Awaiting session</span>
+      <!-- Login overlay (shown when Claude auth needed, covers everything) -->
+      <div class="login-overlay hidden" id="loginScreen">
+        <section class="login-screen">
+          <img src="${logoUri}" alt="NERV logo" class="welcome-logo" />
+          <p class="welcome-kicker">MAGI System v2.1.88</p>
+          <p class="login-desc">NERV-CODE can be used with your Claude subscription or billed based on API usage through your Console account.</p>
+          <p class="login-question">How do you want to log in?</p>
+          <div class="login-error hidden" id="loginError"></div>
+          <div class="login-methods">
+            <button class="login-method-btn login-method-primary" id="loginClaudeAi" type="button">Claude.ai Subscription</button>
+            <p class="login-method-note">Use your Claude Pro, Team, or Enterprise subscription</p>
+            <button class="login-method-btn" id="loginConsole" type="button">Anthropic Console</button>
+            <p class="login-method-note">Pay for API usage through your Console account</p>
           </div>
-          <button class="primary primary--small" id="sendButton" type="button">Send</button>
+          <button class="login-cancel-btn" id="loginCancel" type="button">Cancel</button>
+          <p class="login-footer">Third-party models (MiniMax, Kimi) do not require login.</p>
+        </section>
+      </div>
+
+      <!-- Slash 命令自动补全弹出框 -->
+      <div class="slash-popup hidden" id="slashPopup"></div>
+
+      <footer class="composer">
+        <div class="input-container">
+          <span class="input-prefix">&gt;</span>
+          <textarea
+            id="promptInput"
+            rows="1"
+            placeholder="Ask MAGI to inspect code, explain a file, or make a change..."
+          ></textarea>
+          <button class="send-btn" id="sendButton" title="Send" type="button">&#8594;</button>
+        </div>
+
+        <div class="config-row">
+          <label class="chip-select chip-select--model" for="modelSelect">
+            <span class="sr-only">Model</span>
+            <select id="modelSelect">
+              ${initialModelOptionsMarkup}
+            </select>
+          </label>
+          <label class="chip-select chip-select--permission" for="permissionSelect">
+            <span class="sr-only">Permissions</span>
+            <select id="permissionSelect">
+              <option value="default">Perm: Ask</option>
+              <option value="acceptEdits">Perm: AcceptEdits</option>
+              <option value="auto">Perm: Auto</option>
+              <option value="bypassPermissions">Perm: Bypass</option>
+              <option value="plan">Perm: Plan</option>
+            </select>
+          </label>
+          <label class="chip-select chip-select--thinking" for="thinkingSelect">
+            <span class="sr-only">Thinking</span>
+            <select id="thinkingSelect">
+              <option value="adaptive">Think Auto</option>
+              <option value="off">Think Off</option>
+              <option value="low">Think Low</option>
+              <option value="medium">Think Med</option>
+              <option value="high">Think High</option>
+            </select>
+          </label>
+          <button class="chip" id="planModeToggleButton" type="button" aria-pressed="false">Plan</button>
+          <button class="chip" id="ideContextToggleButton" type="button" aria-pressed="true">IDE Ctx</button>
+          <button class="chip" id="panelToggleButton" type="button" aria-pressed="false">Panels</button>
+        </div>
+
+        <div class="status-bar">
+          <span id="sessionMeta">Awaiting session</span>
+          <span class="status-flag">AT-Field Active</span>
         </div>
       </footer>
     </div>

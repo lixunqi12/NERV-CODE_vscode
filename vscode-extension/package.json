@@ -2,7 +2,7 @@
   "name": "nerv-code",
   "displayName": "NERV CODE",
   "description": "NERV CODE sidebar for VS Code powered by the NERV-CODE CLI",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "nerv",
   "license": "MIT",
   "icon": "media/nerv-marketplace-icon.png",

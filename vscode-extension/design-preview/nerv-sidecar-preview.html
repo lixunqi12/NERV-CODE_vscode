@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NERV CODE Sidecar Preview</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Silkscreen:wght@400;700&family=VT323&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./nerv-sidecar-preview.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brandline">
+          <img src="../media/nerv-marketplace-icon.png" alt="NERV logo" class="brandline-logo" />
+          <span>NERV CODE</span>
+        </div>
+        <div class="toolbar-actions">
+          <button class="icon-button" type="button" aria-label="History">↺</button>
+          <button class="icon-button" type="button" aria-label="Settings">⚙</button>
+          <button class="icon-button" type="button" aria-label="New Session">＋</button>
+        </div>
+      </header>
+
+      <main class="conversation-shell">
+        <section class="welcome-card welcome-card--empty hidden">
+          <img src="../media/nerv-marketplace-icon.png" alt="NERV emblem" class="welcome-logo" />
+          <p class="welcome-kicker">MAGI SYSTEM v2.1.88</p>
+          <p class="welcome-tagline">God's in his heaven. All's right with the world.</p>
+          <p class="welcome-note">Ready in AI_tool with MiniMax M2.7. IDE context on.</p>
+        </section>
+
+        <section class="transcript">
+          <article class="message message--user">
+            <div class="message-meta">
+              <span>Operator</span>
+              <time>16:18</time>
+            </div>
+            <div class="message-body">
+              Make the interface feel more like a VS Code side panel, not a standalone chat app.
+            </div>
+          </article>
+
+          <article class="message message--assistant">
+            <div class="message-meta">
+              <span>MELCHIOR-1</span>
+              <time>16:18</time>
+            </div>
+            <div class="message-body">
+              I would collapse the design into a single narrow column, keep the welcome state small,
+              and let the message flow be the main visual anchor.
+            </div>
+            <div class="message-inline-tags">
+              <span>layout</span>
+              <span>sidecar</span>
+              <span>preview</span>
+            </div>
+          </article>
+
+          <article class="message message--assistant">
+            <div class="message-meta">
+              <span>CASPER-3</span>
+              <time>16:19</time>
+            </div>
+            <div class="message-body message-body--code">
+              <pre><code>.shell {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.conversation-shell {
+  max-width: none;
+}</code></pre>
+            </div>
+          </article>
+        </section>
+
+        <section class="panel-switcher">
+          <div class="panel-tabs">
+            <button class="panel-tab panel-tab--active" type="button">IDE Context</button>
+            <button class="panel-tab" type="button">Tasks</button>
+            <button class="panel-tab" type="button">Tools & MCP</button>
+          </div>
+          <div class="panel-card">
+            <div class="panel-body">
+              <div class="kv"><span>Workspace</span><strong>F:\AI_tool</strong></div>
+              <div class="kv"><span>Open File</span><strong>media/app.js</strong></div>
+              <div class="kv"><span>Selection</span><strong>none</strong></div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="composer">
+        <div class="composer-row">
+          <textarea rows="3" placeholder="Ask MAGI to inspect code, explain a file, or make a change..."></textarea>
+          <button class="send-button" type="button" aria-label="Send">→</button>
+        </div>
+        <div class="composer-footer">
+          <div class="composer-meta">
+            <div class="mode-strip">
+              <span class="chip chip--active">MiniMax M2.7</span>
+              <span class="chip chip--ghost">Perm: Ask</span>
+              <span class="chip chip--ghost">Think Auto</span>
+              <span class="chip chip--ghost">Panels</span>
+            </div>
+            <span class="session-hint">Session ready · waiting for prompt</span>
+          </div>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

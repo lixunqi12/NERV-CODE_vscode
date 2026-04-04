@@ -1,7 +1,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/NERV-CODE-cc1418?style=for-the-badge&labelColor=0A0A0C" alt="NERV CODE" />
   <img src="https://img.shields.io/badge/MAGI_SYSTEM-ONLINE-2D8B46?style=for-the-badge&labelColor=0A0A0C" alt="MAGI SYSTEM ONLINE" />
-  <img src="https://img.shields.io/badge/version-序:1.0.0-D4494F?style=for-the-badge&labelColor=0A0A0C" alt="Version" />
+  <img src="https://img.shields.io/badge/version-破:1.1.0-D4494F?style=for-the-badge&labelColor=0A0A0C" alt="Version" />
 </p>
 
 <p align="center">
@@ -27,6 +27,51 @@
 <p align="center">
   <a href="./README.md">English</a>
 </p>
+
+---
+
+## 界面预览
+
+<p align="center">
+  <img src="vscode-extension/design-preview/NERV_CODE-preview.png" alt="NERV CODE 主界面" width="700"/>
+</p>
+
+<p align="center">
+  <img src="vscode-extension/design-preview/nerv-sidecar-preview.png" alt="NERV CODE Sidecar 面板" width="340"/>
+  <img src="vscode-extension/design-preview/nerv-dashboard-preview.png" alt="NERV CODE 仪表盘" width="340"/>
+</p>
+
+> 可交互预览：[`design-preview/NERV_CODE.html`](vscode-extension/design-preview/NERV_CODE.html) · [`nerv-sidecar-preview.html`](vscode-extension/design-preview/nerv-sidecar-preview.html) · [`nerv-dashboard-preview.html`](vscode-extension/design-preview/nerv-dashboard-preview.html)
+
+---
+
+## 更新日志 — 破:1.1.0（You Can Not Advance）
+
+### VS Code 扩展 — 重大更新
+
+#### 新功能
+
+| 功能 | 说明 |
+|------|------|
+| **扩展思考模式** | 可折叠的 `<thinking>` 块，在对话中内联展示 Claude 的推理过程 |
+| **费用与用量追踪** | 每轮对话费用、会话累计花费（美元）、配额使用量监控 |
+| **任务面板（Todo）** | 从后端 `task` 事件实时同步的任务列表 |
+| **Slash 命令自动补全** | 输入 `/` 弹出带模糊过滤的命令补全菜单 |
+| **工具拒绝列表** | 精细控制各工具的启用状态，跨会话持久化 |
+| **并行会话** | 支持同时开启并切换多个 Claude 会话 |
+| **权限模式切换** | 界面内切换 `default` / `acceptEdits` / `bypassPermissions` 模式 |
+| **登录界面** | Anthropic 账号 / Console OAuth 登录流程集成到侧边栏 |
+| **历史会话恢复** | 恢复历史对话，并支持上下文携带 |
+| **切换模型时上下文携带** | 切换模型时自动将对话历史带入新会话 |
+| **第三方模型检测** | 配置了自定义 `ANTHROPIC_BASE_URL` 的模型配置自动标记为第三方 |
+
+#### UI 改进
+
+- 内置完整 **Markdown 渲染器**：代码块支持 diff 高亮、表格、列表、行内格式
+- MCP 服务器面板（实时状态）
+- 工具管理面板
+- 乐观用户消息渲染（发送后即时显示，不等待后端响应）
+- 操作日志带时间戳显示
 
 ---
 
@@ -204,9 +249,9 @@ Dead Sea Scrolls Parsing... SEELE Protocol Decrypting... Eva Cage Preparing...
 
 | 阶段 | 版本 | 代号 | 状态 | 说明 |
 |------|------|------|------|------|
-| **序** | 1.0.0 | You Are (Not) Alone | **当前** | 首次开源发布。源码还原 + NERV 主题。 |
-| **破** | 2.0.0 | You Can (Not) Advance | 计划中 | 扩展主题（错误界面、权限提示、生命周期消息）。插件系统。 |
-| **Q** | 3.0.0 | You Can (Not) Redo | 计划中 | 大规模重构。MAGI 共识模式用于多 Agent 协调。 |
+| **序** | 1.0.0 | You Are (Not) Alone | 已发布 | 首次开源发布。源码还原 + NERV 主题。 |
+| **破** | 1.1.0 | You Can (Not) Advance | **当前** | VS Code 扩展大更新：思考模式、费用追踪、Slash 补全、并行会话等。 |
+| **Q** | 2.0.0 | You Can (Not) Redo | 计划中 | 大规模重构。MAGI 共识模式用于多 Agent 协调。 |
 | **終** | 3.0+1.0 | Thrice Upon a Time | 计划中 | 功能完整。稳定发布。完全 NERV 整合。 |
 
 ---

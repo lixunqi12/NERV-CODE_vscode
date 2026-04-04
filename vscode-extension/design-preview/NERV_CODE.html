@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NERV CODE Preview</title>
+    <style>
+      :root {
+        --bg: #0b0c0f;
+        --bg-elevated: rgba(16, 18, 22, 0.96);
+        --bg-panel: rgba(19, 21, 25, 0.98);
+        --bg-input: rgba(255, 255, 255, 0.03);
+        --nerv-red: #b7282e;
+        --nerv-red-soft: rgba(183, 40, 46, 0.12);
+        --text-main: #ece7df;
+        --text-dim: rgba(236, 231, 223, 0.68);
+        --text-faint: rgba(236, 231, 223, 0.42);
+        --border-dim: rgba(255, 255, 255, 0.08);
+        --border-strong: rgba(183, 40, 46, 0.34);
+        --font-ui: "Segoe UI", system-ui, sans-serif;
+        --font-mono: "Cascadia Mono", "IBM Plex Mono", Consolas, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background-color: var(--bg);
+        color: var(--text-main);
+        font-family: var(--font-ui);
+      }
+
+      body {
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.012) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.012) 1px, transparent 1px);
+        background-size: 28px 28px;
+      }
+
+      button,
+      textarea {
+        font: inherit;
+        color: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      .shell {
+        width: min(100%, 420px);
+        min-height: 100vh;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        border-left: 1px solid var(--border-dim);
+        border-right: 1px solid var(--border-dim);
+        background: rgba(10, 11, 14, 0.94);
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 14px 10px;
+        border-bottom: 1px solid var(--border-dim);
+      }
+
+      .brand {
+        display: grid;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .brand-mark {
+        color: var(--nerv-red);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .brand-sub {
+        color: var(--text-faint);
+        font-family: var(--font-mono);
+        font-size: 9px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .toolbar-actions {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+
+      .icon-button,
+      .panel-chip,
+      .chip,
+      .ghost-button {
+        border: 1px solid var(--border-dim);
+        background: rgba(255, 255, 255, 0.02);
+        color: var(--text-dim);
+      }
+
+      .icon-button {
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        font-family: var(--font-mono);
+        font-size: 11px;
+      }
+
+      .icon-button:hover,
+      .panel-chip:hover,
+      .chip:hover,
+      .ghost-button:hover {
+        border-color: rgba(255, 255, 255, 0.16);
+        color: var(--text-main);
+      }
+
+      .permission-card,
+      .welcome-card,
+      .panel-card {
+        margin: 0 14px;
+        border: 1px solid var(--border-dim);
+        background: var(--bg-panel);
+      }
+
+      .permission-card {
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+        margin-top: 12px;
+      }
+
+      .permission-label {
+        color: var(--nerv-red);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .permission-copy {
+        margin: 0;
+        color: var(--text-dim);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .permission-actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      .ghost-button {
+        min-height: 28px;
+        padding: 0 10px;
+        font-size: 11px;
+      }
+
+      .ghost-button--active {
+        border-color: var(--border-strong);
+        color: var(--nerv-red);
+        background: var(--nerv-red-soft);
+      }
+
+      .welcome-card {
+        margin-top: 12px;
+        padding: 20px 16px 18px;
+        display: grid;
+        place-items: center;
+        gap: 8px;
+        text-align: center;
+      }
+
+      .welcome-logo {
+        width: 58px;
+        height: 58px;
+        image-rendering: pixelated;
+      }
+
+      .welcome-kicker,
+      .welcome-note {
+        margin: 0;
+        font-family: var(--font-mono);
+      }
+
+      .welcome-kicker {
+        color: var(--text-faint);
+        font-size: 10px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .welcome-tagline {
+        margin: 0;
+        color: var(--text-dim);
+        font-size: 12px;
+        font-style: italic;
+      }
+
+      .welcome-note {
+        color: var(--text-dim);
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .panel-chip--active,
+      .chip--active {
+        border-color: var(--border-strong);
+        color: var(--nerv-red);
+        background: var(--nerv-red-soft);
+      }
+
+      .transcript-flow {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        padding: 16px 0 12px;
+      }
+
+      .msg {
+        max-width: 90%;
+        padding: 0 14px;
+      }
+
+      .msg--assistant {
+        align-self: flex-start;
+      }
+
+      .msg--user {
+        align-self: flex-end;
+      }
+
+      .msg-shell {
+        border: 1px solid transparent;
+        background: rgba(255, 255, 255, 0.025);
+        padding: 10px 11px;
+      }
+
+      .msg--assistant .msg-shell {
+        border-color: rgba(255, 255, 255, 0.05);
+      }
+
+      .msg--user .msg-shell {
+        border-color: rgba(183, 40, 46, 0.16);
+        background: rgba(183, 40, 46, 0.05);
+      }
+
+      .msg-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 6px;
+        color: var(--text-faint);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .msg-content {
+        color: var(--text-main);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      .msg-content p {
+        margin: 0 0 0.55em;
+      }
+
+      .msg-content p:last-child {
+        margin-bottom: 0;
+      }
+
+      .code-block {
+        margin-top: 10px;
+        padding: 10px 11px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        background: rgba(255, 255, 255, 0.02);
+        overflow-x: auto;
+      }
+
+      .code-block code {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: #f2dfdb;
+        white-space: pre;
+      }
+
+      .panel-switcher {
+        padding: 0 14px 8px;
+        display: grid;
+        gap: 6px;
+      }
+
+      .panel-tabs {
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+      }
+
+      .panel-chip {
+        min-height: 22px;
+        padding: 0 8px;
+        font-family: var(--font-mono);
+        font-size: 9px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .panel-card {
+        padding: 8px 10px;
+        max-height: 124px;
+        overflow: auto;
+      }
+
+      .panel-grid {
+        display: grid;
+        gap: 6px;
+      }
+
+      .panel-row {
+        display: grid;
+        gap: 2px;
+      }
+
+      .panel-row dt,
+      .panel-row dd {
+        margin: 0;
+      }
+
+      .panel-row dt {
+        color: var(--text-faint);
+        font-family: var(--font-mono);
+        font-size: 9px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .panel-row dd {
+        color: var(--text-main);
+        font-size: 11px;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+      }
+
+      .panel-card-list {
+        display: grid;
+        gap: 6px;
+      }
+
+      .panel-list-item {
+        padding: 6px 7px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .panel-list-item strong {
+        display: block;
+        margin-bottom: 3px;
+        color: var(--text-main);
+        font-size: 10px;
+      }
+
+      .panel-list-item span {
+        color: var(--text-dim);
+        font-size: 10px;
+        line-height: 1.35;
+      }
+
+      .footer-composer {
+        display: grid;
+        gap: 8px;
+        padding: 10px 14px 12px;
+        border-top: 1px solid var(--border-dim);
+        background: var(--bg-elevated);
+        flex: 0 0 auto;
+      }
+
+      .input-container {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+        padding: 8px 9px;
+        border: 1px solid var(--border-dim);
+        background: var(--bg-input);
+      }
+
+      .input-container:focus-within {
+        border-color: rgba(183, 40, 46, 0.28);
+      }
+
+      .input-prefix {
+        margin-bottom: 4px;
+        color: var(--nerv-red);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      textarea {
+        flex: 1;
+        min-height: 22px;
+        max-height: 112px;
+        padding: 0;
+        resize: none;
+        border: 0;
+        background: transparent;
+        color: var(--text-main);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        line-height: 1.5;
+        outline: none;
+      }
+
+      .send-btn {
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: 1px solid var(--nerv-red);
+        background: var(--nerv-red);
+        color: #ffffff;
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+      }
+
+      .send-btn:hover {
+        opacity: 0.86;
+      }
+
+      .config-row {
+        display: flex;
+        gap: 6px;
+        flex-wrap: nowrap;
+        align-items: center;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scrollbar-width: none;
+        padding-bottom: 1px;
+      }
+
+      .config-row::-webkit-scrollbar {
+        display: none;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 24px;
+        height: 24px;
+        padding: 0 8px;
+        font-family: var(--font-mono);
+        font-size: 9px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        white-space: nowrap;
+        flex: 0 0 auto;
+      }
+
+      .status-bar {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: center;
+        color: var(--text-faint);
+        font-family: var(--font-mono);
+        font-size: 9px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .status-flag {
+        color: var(--nerv-red);
+      }
+
+      .chip[data-role="panels"][aria-pressed="true"] {
+        border-color: var(--border-strong);
+        color: var(--nerv-red);
+        background: var(--nerv-red-soft);
+      }
+
+      .slash-popup {
+        margin: 0 14px 10px;
+        padding: 8px 10px;
+        border: 1px solid var(--border-strong);
+        background: var(--bg-panel);
+      }
+
+      .slash-popup strong {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--nerv-red);
+        font-family: var(--font-mono);
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .slash-popup span {
+        color: var(--text-dim);
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">NERV CODE</span>
+          <span class="brand-sub">MAGI Sidecar Interface</span>
+        </div>
+        <div class="toolbar-actions">
+          <button class="icon-button" type="button" aria-label="Session history">&#8634;</button>
+          <button class="icon-button" type="button" aria-label="Settings">&#9881;</button>
+          <button class="icon-button" type="button" aria-label="New conversation">+</button>
+        </div>
+      </header>
+
+      <section class="permission-card hidden" id="permissionCard">
+        <span class="permission-label">Authorization Required</span>
+        <p class="permission-copy">
+          Allow one shell command to inspect the workspace state before applying the next patch.
+        </p>
+        <div class="permission-actions">
+          <button class="ghost-button ghost-button--active" type="button">Allow Once</button>
+          <button class="ghost-button" type="button">Deny</button>
+        </div>
+      </section>
+
+      <section class="welcome-card hidden" id="welcomeCard">
+        <img src="../media/nerv-marketplace-icon.png" alt="NERV logo" class="welcome-logo" />
+        <p class="welcome-kicker">MAGI System v2.1.88</p>
+        <p class="welcome-tagline">God's in his heaven. All's right with the world.</p>
+        <p class="welcome-note">
+          Ready in AI_tool with MiniMax M2.7. IDE context on.
+        </p>
+      </section>
+
+      <main class="transcript-flow">
+        <article class="msg msg--assistant">
+          <div class="msg-shell">
+            <div class="msg-meta">
+              <span>MAGI-1</span>
+              <span>23:59</span>
+            </div>
+            <div class="msg-content">
+              <p>
+                I checked the proposed sidecar layout against the real webview structure.
+              </p>
+              <p>
+                The visual direction works, but the plugin still needs a few always-available anchors:
+                top actions, panel buttons, and the compact composer controls.
+              </p>
+            </div>
+          </div>
+        </article>
+
+        <article class="msg msg--user">
+          <div class="msg-shell">
+            <div class="msg-meta">
+              <span>Operator</span>
+              <span>23:59</span>
+            </div>
+            <div class="msg-content">
+              <p>Use this layout, keep it minimal, and tell me if anything important is missing.</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="msg msg--assistant">
+          <div class="msg-shell">
+            <div class="msg-meta">
+              <span>BALTHASAR-2</span>
+              <span>00:00</span>
+            </div>
+            <div class="msg-content">
+              <p>Nothing critical is missing anymore in this preview pass. The remaining items are mostly data wiring.</p>
+              <div class="code-block">
+                <code>.topbar        -> history / settings / new session
+.panel-tabs     -> context / tasks / tools view
+.composer       -> model / permission / thinking / send</code>
+              </div>
+            </div>
+          </div>
+        </article>
+      </main>
+
+      <section class="panel-switcher hidden" id="panelSwitcher">
+        <div class="panel-tabs">
+          <button class="panel-chip panel-chip--active" type="button" data-panel="context">IDE Context</button>
+          <button class="panel-chip" type="button" data-panel="tasks">Tasks</button>
+          <button class="panel-chip" type="button" data-panel="tools">Tools &amp; MCP</button>
+        </div>
+
+        <div class="panel-card" id="panelCard">
+          <dl class="panel-grid" data-panel-content="context">
+            <div class="panel-row">
+              <dt>Workspace</dt>
+              <dd>F:\AI_tool</dd>
+            </div>
+            <div class="panel-row">
+              <dt>Active File</dt>
+              <dd>design-preview/NERV_CODE.html</dd>
+            </div>
+            <div class="panel-row">
+              <dt>Selection</dt>
+              <dd>none</dd>
+            </div>
+          </dl>
+
+          <div class="panel-card-list hidden" data-panel-content="tasks">
+            <div class="panel-list-item">
+              <strong>In Progress</strong>
+              <span>Refine sidecar preview so it matches the real VS Code plugin shape.</span>
+            </div>
+            <div class="panel-list-item">
+              <strong>Pending</strong>
+              <span>Map static controls to live webview state from app.js and extension.js.</span>
+            </div>
+          </div>
+
+          <div class="panel-card-list hidden" data-panel-content="tools">
+            <div class="panel-list-item">
+              <strong>Model</strong>
+              <span>MiniMax M2.7 profile ready</span>
+            </div>
+            <div class="panel-list-item">
+              <strong>MCP</strong>
+              <span>Tools drawer and task drawer still fit in this compact layout</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="slash-popup hidden" id="slashPopup">
+        <strong>Slash Commands</strong>
+        <span>/plan, /review, /explain, /new-session</span>
+      </div>
+
+      <footer class="footer-composer">
+        <div class="input-container">
+          <span class="input-prefix">&gt;</span>
+          <textarea id="promptInput" rows="1" placeholder="Ask MAGI to inspect code, explain a file, or make a change..."></textarea>
+          <button class="send-btn" title="Send" type="button">&#8594;</button>
+        </div>
+
+        <div class="config-row">
+          <button class="chip chip--active" type="button">MiniMax M2.7</button>
+          <button class="chip" type="button">Perm: Ask</button>
+          <button class="chip" type="button">Think Auto</button>
+          <button class="chip" id="panelToggleButton" data-role="panels" type="button" aria-pressed="false">Panels</button>
+        </div>
+
+        <div class="status-bar">
+          <span>SID: 0x2188-B</span>
+          <span>Context: 1024 tokens</span>
+          <span class="status-flag">AT-Field Active</span>
+        </div>
+      </footer>
+    </div>
+
+    <script>
+      const promptInput = document.getElementById("promptInput");
+      const panelSwitcher = document.getElementById("panelSwitcher");
+      const panelToggleButton = document.getElementById("panelToggleButton");
+      const panelButtons = Array.from(document.querySelectorAll("[data-panel]"));
+      const panelContents = Array.from(document.querySelectorAll("[data-panel-content]"));
+
+      function autosizeInput() {
+        promptInput.style.height = "auto";
+        promptInput.style.height = Math.min(promptInput.scrollHeight, 112) + "px";
+      }
+
+      function switchPanel(name) {
+        panelButtons.forEach((button) => {
+          button.classList.toggle("panel-chip--active", button.dataset.panel === name);
+        });
+        panelContents.forEach((panel) => {
+          panel.classList.toggle("hidden", panel.dataset.panelContent !== name);
+        });
+      }
+
+      promptInput.addEventListener("input", autosizeInput);
+      panelButtons.forEach((button) => {
+        button.addEventListener("click", () => switchPanel(button.dataset.panel));
+      });
+      panelToggleButton.addEventListener("click", () => {
+        const willOpen = panelSwitcher.classList.contains("hidden");
+        panelSwitcher.classList.toggle("hidden", !willOpen);
+        panelToggleButton.setAttribute("aria-pressed", willOpen ? "true" : "false");
+      });
+
+      autosizeInput();
+      switchPanel("context");
+    </script>
+  </body>
+</html>
