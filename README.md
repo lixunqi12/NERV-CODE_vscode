@@ -34,7 +34,6 @@
 
 <p align="center">
   <img src="vscode-extension/design-preview/nerv-sidecar-preview.png" alt="NERV CODE Sidecar Panel" width="340"/>
-  <img src="vscode-extension/design-preview/nerv-dashboard-preview.png" alt="NERV CODE Dashboard" width="340"/>
 </p>
 
 > Live interactive previews: [`design-preview/NERV_CODE.html`](vscode-extension/design-preview/NERV_CODE.html) · [`nerv-sidecar-preview.html`](vscode-extension/design-preview/nerv-sidecar-preview.html) · [`nerv-dashboard-preview.html`](vscode-extension/design-preview/nerv-dashboard-preview.html)
