@@ -1845,6 +1845,10 @@ class NervCodeController {
     this.postState();
 
     // Build content: string for plain text, array for text + attachments
+    // Uses universally compatible formats so ANY model can process them:
+    //   - Images  → 'image' block with base64 (supported by all vision models)
+    //   - Text/code files → inlined as 'text' block (works with every LLM)
+    //   - PDFs → inlined as 'text' block with base64 fallback hint
     let content;
     const textContent = options.raw ? effectivePrompt : this.buildPromptWithIdeContext(effectivePrompt);
     const attachments = Array.isArray(options.attachments) ? options.attachments : [];
@@ -1853,24 +1857,35 @@ class NervCodeController {
       content = [{ type: 'text', text: textContent }];
       for (const att of attachments) {
         if (att.type === 'image') {
+          // Image blocks are universally supported by vision-capable models
           content.push({
             type: 'image',
             source: { type: 'base64', media_type: att.mediaType, data: att.data },
           });
         } else if (att.type === 'document') {
+          // Inline all document content as text blocks for universal model compatibility.
+          // The 'document' block type is Anthropic-only; text blocks work everywhere.
+          const decoded = Buffer.from(att.data, 'base64').toString('utf-8');
           if (att.mediaType === 'application/pdf') {
+            // PDF: binary cannot be meaningfully decoded to UTF-8, so we send both
+            // a text marker (so any model knows a PDF was attached) and the raw block
+            // for models that natively support it (Claude).
+            content.push({
+              type: 'text',
+              text: `[Attached PDF: ${att.name}]\n`
+                  + `(If you can read PDF document blocks, the full PDF follows as the next content block. `
+                  + `Otherwise, please ask the user to paste the relevant text from the PDF.)`,
+            });
             content.push({
               type: 'document',
               source: { type: 'base64', media_type: 'application/pdf', data: att.data },
               title: att.name,
             });
           } else {
-            // Text file: decode base64 and send as text document
-            const decoded = Buffer.from(att.data, 'base64').toString('utf-8');
+            // Text / code file: inline the full content as a text block
             content.push({
-              type: 'document',
-              source: { type: 'text', media_type: 'text/plain', data: decoded },
-              title: att.name,
+              type: 'text',
+              text: `── File: ${att.name} ──\n${decoded}\n── End of ${att.name} ──`,
             });
           }
         }
