@@ -33,10 +33,6 @@
 ## Interface Preview
 
 <p align="center">
-  <img src="vscode-extension/design-preview/NERV_CODE-preview.png" alt="NERV CODE Main Interface" width="700"/>
-</p>
-
-<p align="center">
   <img src="vscode-extension/design-preview/nerv-sidecar-preview.png" alt="NERV CODE Sidecar Panel" width="340"/>
   <img src="vscode-extension/design-preview/nerv-dashboard-preview.png" alt="NERV CODE Dashboard" width="340"/>
 </p>
