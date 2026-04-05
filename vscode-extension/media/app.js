@@ -1097,7 +1097,18 @@ function renderToolsPanel(state) {
   const toolDenylist = state.toolDenylist || [];
 
   if (tools.length === 0) {
-    elements.toolsPanel.innerHTML = '<div class="tools-empty">Waiting for backend to report available tools...</div>';
+    const bs = state.backendStatus;
+    let msg;
+    if (bs === 'starting') {
+      msg = '<span class="spinner-dot"></span> 正在连接后端，工具加载中…';
+    } else if (bs === 'online' || bs === 'idle') {
+      msg = 'No tools reported by backend.';
+    } else if (bs === 'error') {
+      msg = '后端连接失败，请检查 CLI 路径配置。';
+    } else {
+      msg = '<span class="spinner-dot"></span> 正在启动…';
+    }
+    elements.toolsPanel.innerHTML = `<div class="tools-empty">${msg}</div>`;
     return;
   }
 

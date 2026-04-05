@@ -1537,6 +1537,19 @@ textarea:disabled {
   font-size: 11px;
   line-height: 1.5;
 }
+.spinner-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent, #e94560);
+  animation: spinner-pulse 1s ease-in-out infinite;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+@keyframes spinner-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50%      { opacity: 1;   transform: scale(1.2); }
+}
 .mcp-hint {
   margin-top: 4px;
   font-size: 10px;

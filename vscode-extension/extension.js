@@ -756,6 +756,12 @@ class NervCodeController {
     this.pendingThinkingRequestId = null;
     this.interactionStatus = null;
     this.state = createInitialState();
+    // Restore cached runtime (tools list survives restarts / session resumption)
+    const cachedRuntime = this.context.workspaceState.get('nerv-code.cachedRuntime');
+    if (cachedRuntime && Array.isArray(cachedRuntime.tools) && cachedRuntime.tools.length > 0) {
+      this.state.runtime = cachedRuntime;
+      _log('constructor: restored cached runtime, tools=' + cachedRuntime.tools.length);
+    }
     this.modelProfiles = [];
     this.sessionHistory = this.loadSessionHistory();
     _log('constructor: sessionHistory count=' + this.sessionHistory.length);
@@ -2201,6 +2207,11 @@ class NervCodeController {
       this.state.sessionId = message.session_id;
     }
 
+    // If backend is still 'starting' but we got a valid message, mark online
+    if (this.state.backendStatus === 'starting' && message?.type) {
+      this.state.backendStatus = 'online';
+    }
+
     switch (message?.type) {
       case 'control_response':
         this.handleControlResponse(message);
@@ -2375,6 +2386,11 @@ class NervCodeController {
       case 'init':
         this.state.backendStatus = 'online';
         this.state.runtime = summarizeRuntime(message);
+        _log('system:init tools=' + (this.state.runtime.tools?.length || 0) + ' mcpServers=' + (this.state.runtime.mcpServers?.length || 0));
+        // Cache runtime so tools survive session resumption (where CLI skips init)
+        if (this.state.runtime.tools?.length > 0) {
+          this.context.workspaceState.update('nerv-code.cachedRuntime', this.state.runtime);
+        }
         if (this.modelProfiles.length === 0 && this.state.runtime?.model) {
           this.state.selectedModel = this.state.runtime.model;
         }
