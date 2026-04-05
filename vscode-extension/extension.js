@@ -387,6 +387,34 @@ function normalizeModelInfo(model) {
   };
 }
 
+/**
+ * Filter out [1m] (extended 1M context) model variants.
+ * Replace them with standard-context equivalents if no standard version exists.
+ */
+function filterExtendedContextModels(models) {
+  const standardValues = new Set(models.map(m => m.value).filter(v => !v.endsWith('[1m]')));
+  const result = [];
+  for (const model of models) {
+    if (model.value.endsWith('[1m]')) {
+      const baseValue = model.value.replace('[1m]', '');
+      // Only add a standard replacement if no standard version already exists
+      if (!standardValues.has(baseValue)) {
+        result.push({
+          ...model,
+          value: baseValue,
+          displayName: model.displayName?.replace('[1m]', '').replace('[1M]', '') || baseValue,
+          description: model.description?.replace('[1m]', '').replace('[1M]', '') || '',
+        });
+        standardValues.add(baseValue);
+      }
+      // Skip the [1m] variant entirely
+    } else {
+      result.push(model);
+    }
+  }
+  return result;
+}
+
 function sanitizeThinkingMode(value) {
   if (typeof value !== 'string') {
     return 'adaptive';
@@ -961,6 +989,7 @@ class NervCodeController {
   }
 
   commitPendingModelChange() {
+    console.log('[NERV-DEBUG] commitPendingModelChange called, pendingModelChange:', JSON.stringify(this.pendingModelChange?.targetModel));
     if (!this.pendingModelChange) {
       this.pendingModelRequestId = null;
       return;
@@ -1439,7 +1468,7 @@ class NervCodeController {
   }
 
   requestModelChange(modelValue, options = {}) {
-    const nextModel = typeof modelValue === 'string' && modelValue.trim() ? modelValue.trim() : 'default';
+    const nextModel = (typeof modelValue === 'string' && modelValue.trim() ? modelValue.trim() : 'default').replace(/\[1m\]$/i, '');
     const requestId = randomUUID();
     const sent = this.sendMessage({
       type: 'control_request',
@@ -1576,6 +1605,19 @@ class NervCodeController {
         this.postState();
         this.focusInput();
         break;
+      case 'stopGeneration':
+        _log('handleWebviewMessage: stopGeneration');
+        this.sendMessage({
+          type: 'control_request',
+          request_id: randomUUID(),
+          request: { subtype: 'interrupt' },
+        });
+        this.state.busy = false;
+        this.state.sessionState = 'idle';
+        this.clearStreamingAssistant();
+        this.appendActivity('warn', 'Generation interrupted by user.');
+        this.postState();
+        break;
       case 'sendPrompt':
         _log('handleWebviewMessage: sendPrompt text=' + JSON.stringify(message.text));
         {
@@ -1709,7 +1751,31 @@ class NervCodeController {
       '--verbose',
       '--permission-mode',
       this.permissionMode || 'default',
+      '--permission-prompt-tool',
+      'stdio',
     ];
+
+    // Pass --thinking flag to CLI to set correct context window (prevents 1M default)
+    const thinkingMode = sanitizeThinkingMode(this.thinkingMode);
+    if (thinkingMode === 'off') {
+      args.push('--thinking', 'disabled');
+    } else if (thinkingMode === 'adaptive') {
+      args.push('--thinking', 'adaptive');
+    } else {
+      // low/medium/high → pass as max-thinking-tokens budget
+      const budget = this.getThinkingBudget(thinkingMode);
+      if (budget != null) {
+        args.push('--max-thinking-tokens', budget.toString());
+      }
+    }
+
+    // Pass --model flag if a model is selected (strip [1m] suffix to avoid 1M context)
+    const profile = this.getSelectedProfile();
+    const rawModelName = this.pendingModelChange?.targetModel || profile?.model;
+    const modelName = rawModelName ? rawModelName.replace(/\[1m\]$/i, '') : null;
+    if (modelName && modelName !== 'default') {
+      args.push('--model', modelName);
+    }
 
     _log('startProcess: cmd=' + launchSpec.command + ' args=' + JSON.stringify(args) + ' cwd=' + cwd);
 
@@ -1923,11 +1989,13 @@ class NervCodeController {
     const textContent = options.raw ? effectivePrompt : this.buildPromptWithIdeContext(effectivePrompt);
     const attachments = Array.isArray(options.attachments) ? options.attachments : [];
 
+    console.log('[NERV-DEBUG] attachments count:', attachments.length, 'types:', attachments.map(a => a.type));
     if (attachments.length > 0) {
       content = [{ type: 'text', text: textContent }];
       for (const att of attachments) {
         if (att.type === 'image') {
           // Image blocks are universally supported by vision-capable models
+          console.log('[NERV-DEBUG] adding image block, mediaType:', att.mediaType, 'data length:', att.data?.length);
           content.push({
             type: 'image',
             source: { type: 'base64', media_type: att.mediaType, data: att.data },
@@ -1982,6 +2050,17 @@ class NervCodeController {
       uuid: randomUUID(),
     };
 
+    // Debug: log content structure (not actual data to avoid spamming)
+    if (Array.isArray(content)) {
+      console.log('[NERV-DEBUG] sending content blocks:', content.map(b => ({
+        type: b.type,
+        ...(b.type === 'image' ? { source_type: b.source?.type, media_type: b.source?.media_type, data_len: b.source?.data?.length } : {}),
+        ...(b.type === 'text' ? { text_len: b.text?.length } : {}),
+      })));
+    } else {
+      console.log('[NERV-DEBUG] sending plain text, length:', content?.length);
+    }
+
     const sent = this.sendMessage(message);
     if (!sent) {
       this.state.busy = false;
@@ -1995,8 +2074,37 @@ class NervCodeController {
     return buildPromptSubmissionResult(true);
   }
 
-  async respondToPermission(allow) {
-    const pending = this.state.pendingPermission;
+  /**
+   * Show a diff view for a proposed file edit.
+   * Called when an Edit/Write tool permission request arrives.
+   */
+  async showProposedDiff(filePath, original, proposed, requestId) {
+    const leftUri = vscode.Uri.parse(`${DIFF_SCHEME_LEFT}:${filePath}`);
+    const rightUri = vscode.Uri.parse(`${DIFF_SCHEME_RIGHT}:${filePath}`);
+    diffProviderLeft.setContent(leftUri, original);
+    diffProviderRight.setContent(rightUri, proposed);
+    activeDiffInfo = { filePath, requestId, original, proposed };
+    await vscode.commands.executeCommand('setContext', 'nerv-code.viewingProposedDiff', true);
+    const title = `${path.basename(filePath)} (NERV Proposed Changes)`;
+    await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title);
+  }
+
+  async respondToPermission(allowOrRequestId, allowValue) {
+    // Support two call signatures:
+    //   respondToPermission(true/false) — use current pendingPermission
+    //   respondToPermission(requestId, true/false) — use specific requestId
+    let pending;
+    let allow;
+    if (typeof allowOrRequestId === 'string') {
+      // Called from diff accept/reject with a specific requestId
+      allow = Boolean(allowValue);
+      pending = this.state.pendingPermission?.requestId === allowOrRequestId
+        ? this.state.pendingPermission
+        : { requestId: allowOrRequestId, toolName: 'Edit', toolUseId: null, input: {} };
+    } else {
+      allow = Boolean(allowOrRequestId);
+      pending = this.state.pendingPermission;
+    }
     if (!pending) {
       return;
     }
@@ -2033,6 +2141,7 @@ class NervCodeController {
     this.state.sessionState = allow ? 'running' : 'idle';
     this.state.busy = allow;
     this.postState();
+
   }
 
   sendMessage(payload) {
@@ -2064,6 +2173,16 @@ class NervCodeController {
         continue;
       }
       this.handleLine(trimmed);
+    }
+
+    // Safety: if buffer holds a complete JSON object without trailing newline
+    // (common for the final "result" message), flush it immediately
+    if (this.stdoutBuffer.length > 0) {
+      const buf = this.stdoutBuffer.trim();
+      if (buf.startsWith('{') && buf.endsWith('}')) {
+        this.stdoutBuffer = '';
+        this.handleLine(buf);
+      }
     }
   }
 
@@ -2129,6 +2248,11 @@ class NervCodeController {
 
   handleControlResponse(message) {
     const requestId = message?.response?.request_id || message?.request_id || null;
+    console.log('[NERV-DEBUG] handleControlResponse requestId:', requestId,
+      'pendingModelRequestId:', this.pendingModelRequestId,
+      'pendingModelSelection:', this.pendingModelSelection,
+      'subtype:', message?.response?.subtype,
+      'hasAccount:', Boolean(message?.response?.response?.account));
     if (message?.response?.subtype !== 'success') {
       const detail = message?.response?.error || 'Backend control request failed.';
       this.state.lastError = detail;
@@ -2159,8 +2283,9 @@ class NervCodeController {
       this.state.backendStatus = 'online';
       this.state.account = response.account || this.state.account;
       this.state.availableModels = Array.isArray(response.models)
-        ? response.models.map(normalizeModelInfo)
+        ? filterExtendedContextModels(response.models.map(normalizeModelInfo))
         : getBuiltinFallbackModels();
+      _log('availableModels: ' + JSON.stringify(this.state.availableModels.map(m => m.value)));
       this.appendActivity(
         'info',
         `MAGI online${response.account?.subscriptionType ? ` - ${response.account.subscriptionType}` : ''}.`,
@@ -2216,6 +2341,33 @@ class NervCodeController {
     this.state.sessionState = 'requires_action';
     this.state.busy = true;
     this.appendActivity('warn', `Authorization required for ${message.request.tool_name}.`);
+
+    // Embed diff data into pendingPermission for inline display in the sidebar
+    const toolName = message.request.tool_name;
+    const input = message.request.input || {};
+    if ((toolName === 'Edit' || toolName === 'Write') && input.file_path) {
+      try {
+        const original = toolName === 'Edit' && fs.existsSync(input.file_path)
+          ? fs.readFileSync(input.file_path, 'utf-8')
+          : '';
+        let proposed = original;
+        if (toolName === 'Edit' && input.old_string != null && input.new_string != null) {
+          proposed = original.replace(input.old_string, input.new_string);
+        } else if (toolName === 'Write' && input.content != null) {
+          proposed = input.content;
+        }
+        if (proposed !== original) {
+          this.state.pendingPermission.diff = {
+            filePath: input.file_path,
+            original,
+            proposed,
+          };
+        }
+      } catch (err) {
+        _log('diff generation error: ' + err.message);
+      }
+    }
+    this.postState();
   }
 
   handleSystemMessage(message) {
@@ -2432,6 +2584,8 @@ class NervCodeController {
       this.clearStreamingAssistant();
       this.appendActivity('error', detail);
       this.state.busy = false;
+      this.state.sessionState = 'idle';
+      this.postState();
       return;
     }
 
@@ -2449,6 +2603,8 @@ class NervCodeController {
     );
     this.clearStreamingAssistant();
     this.state.busy = false;
+    this.state.sessionState = 'idle';
+    this.postState();
   }
 
   handleStderr(chunk) {
@@ -2913,6 +3069,7 @@ class NervCodeController {
             placeholder="Ask MAGI to inspect code, explain a file, or make a change..."
           ></textarea>
           <button class="send-btn" id="sendButton" title="Send" type="button">&#8594;</button>
+          <button class="stop-btn hidden" id="stopButton" title="Stop generation" type="button">&#9632; STOP</button>
         </div>
 
         <div class="config-row">
@@ -2960,7 +3117,33 @@ class NervCodeController {
   }
 }
 
+/* ── Diff Review: Virtual filesystem provider for proposed changes ── */
+class NervDiffContentProvider {
+  constructor() {
+    this._contents = new Map();
+    this._onDidChange = new vscode.EventEmitter();
+    this.onDidChange = this._onDidChange.event;
+  }
+  setContent(uri, content) {
+    this._contents.set(uri.toString(), content);
+    this._onDidChange.fire(uri);
+  }
+  provideTextDocumentContent(uri) {
+    return this._contents.get(uri.toString()) || '';
+  }
+  clear() {
+    this._contents.clear();
+  }
+}
+
+const DIFF_SCHEME_LEFT = 'nerv-diff-left';
+const DIFF_SCHEME_RIGHT = 'nerv-diff-right';
+const diffProviderLeft = new NervDiffContentProvider();
+const diffProviderRight = new NervDiffContentProvider();
+
 let controller = null;
+let editorPanel = null; // Webview panel for "Open in New Tab" mode
+let activeDiffInfo = null; // { filePath, requestId, original, proposed }
 
 function activate(context) {
   controller = new NervCodeController(context);
@@ -2983,6 +3166,263 @@ function activate(context) {
     vscode.commands.registerCommand('nerv-code.restart', async () => {
       await controller.restartSession();
       await controller.reveal();
+    }),
+  );
+
+  // 热重载 webview（开发时无需重启 VS Code 即可更新 app.js/styles.css）
+  context.subscriptions.push(
+    vscode.commands.registerCommand('nerv-code.reloadWebview', () => {
+      if (controller?.view) {
+        controller.view.webview.html = controller.getHtml(controller.view.webview);
+        controller.webviewReady = false;
+      }
+    }),
+  );
+
+  // ── Feature 1: Keybindings ──────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('nerv-code.focus', async () => {
+      await controller?.reveal();
+      controller?.view?.webview?.postMessage({ type: 'focusInput' });
+      vscode.commands.executeCommand('setContext', 'nerv-code.inputFocused', true);
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('nerv-code.blur', () => {
+      vscode.commands.executeCommand('setContext', 'nerv-code.inputFocused', false);
+      if (vscode.window.activeTextEditor) {
+        vscode.window.showTextDocument(vscode.window.activeTextEditor.document);
+      } else {
+        vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+      }
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('nerv-code.newConversation', async () => {
+      await controller?.restartSession();
+    }),
+  );
+
+  // ── Feature 2: Open in Editor Tab ────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('nerv-code.editor.open', () => {
+      if (editorPanel) {
+        editorPanel.reveal(vscode.ViewColumn.One);
+        return;
+      }
+      editorPanel = vscode.window.createWebviewPanel(
+        'nervCodePanel',
+        'NERV CODE',
+        vscode.ViewColumn.One,
+        {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
+        },
+      );
+
+      // Use a lightweight webview object adapter so getHtml works
+      editorPanel.webview.html = controller.getHtml(editorPanel.webview);
+
+      editorPanel.webview.onDidReceiveMessage(message => {
+        _log('editorPanel message: type=' + message?.type);
+        void controller?.handleWebviewMessage(message);
+      });
+
+      // Sync state to the panel
+      const origPostState = controller.postState.bind(controller);
+      const patchedPostState = function () {
+        origPostState();
+        if (editorPanel && controller?.state) {
+          editorPanel.webview.postMessage({ type: 'state', state: controller.state });
+        }
+      };
+      controller.postState = patchedPostState;
+
+      editorPanel.onDidDispose(() => {
+        editorPanel = null;
+        // Restore original postState
+        controller.postState = origPostState;
+      });
+
+      // Push initial state
+      controller.postState();
+    }),
+  );
+
+  // ── Feature 3: Diff Review ──────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider(DIFF_SCHEME_LEFT, diffProviderLeft),
+  );
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider(DIFF_SCHEME_RIGHT, diffProviderRight),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('nerv-code.acceptProposedDiff', () => {
+      if (!activeDiffInfo) return;
+      const { filePath, proposed } = activeDiffInfo;
+      // Write the proposed content to the actual file
+      const fileUri = vscode.Uri.file(filePath);
+      const edit = new vscode.WorkspaceEdit();
+      edit.createFile(fileUri, { overwrite: true, ignoreIfExists: true });
+      vscode.workspace.applyEdit(edit).then(() => {
+        fs.writeFileSync(filePath, proposed, 'utf-8');
+        vscode.window.showInformationMessage(`NERV: Accepted changes to ${path.basename(filePath)}`);
+      });
+      // Also approve the permission in the backend if there's a pending request
+      if (activeDiffInfo.requestId && controller) {
+        controller.respondToPermission(activeDiffInfo.requestId, true);
+      }
+      vscode.commands.executeCommand('setContext', 'nerv-code.viewingProposedDiff', false);
+      activeDiffInfo = null;
+      // Close the diff editor
+      vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('nerv-code.rejectProposedDiff', () => {
+      if (!activeDiffInfo) return;
+      // Reject: deny the permission in the backend
+      if (activeDiffInfo.requestId && controller) {
+        controller.respondToPermission(activeDiffInfo.requestId, false);
+      }
+      vscode.window.showInformationMessage(`NERV: Rejected changes to ${path.basename(activeDiffInfo.filePath)}`);
+      vscode.commands.executeCommand('setContext', 'nerv-code.viewingProposedDiff', false);
+      activeDiffInfo = null;
+      vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+    }),
+  );
+
+  // Track diff editor close to reset context
+  context.subscriptions.push(
+    vscode.window.tabGroups.onDidChangeTabs(event => {
+      if (activeDiffInfo && event.closed.length > 0) {
+        // Check if the diff tab was closed
+        const stillOpen = vscode.window.tabGroups.all.some(group =>
+          group.tabs.some(tab => tab.label?.includes('NERV Proposed'))
+        );
+        if (!stillOpen) {
+          vscode.commands.executeCommand('setContext', 'nerv-code.viewingProposedDiff', false);
+          activeDiffInfo = null;
+        }
+      }
+    }),
+  );
+
+  // ── Feature 4: @Mention Insertion ────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('nerv-code.insertAtMention', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) return;
+      const doc = editor.document;
+      const relPath = vscode.workspace.asRelativePath(doc.fileName);
+      const sel = editor.selection;
+      let mention;
+      if (sel.isEmpty) {
+        mention = `@${relPath}`;
+      } else {
+        const startLine = sel.start.line + 1;
+        const endLine = sel.end.line + 1;
+        mention = startLine !== endLine
+          ? `@${relPath}#L${startLine}-${endLine}`
+          : `@${relPath}#L${startLine}`;
+      }
+      // Send to webview to insert into prompt input
+      await controller?.reveal();
+      controller?.view?.webview?.postMessage({ type: 'insertText', text: mention });
+      if (editorPanel) {
+        editorPanel.webview.postMessage({ type: 'insertText', text: mention });
+      }
+    }),
+  );
+
+  // ── Feature 5: Create Worktree ──────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('nerv-code.createWorktree', async () => {
+      const cwd = getWorkingDirectory();
+      // Check if inside a git repo
+      const gitCheck = require('child_process').spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd, encoding: 'utf-8' });
+      if (gitCheck.status !== 0) {
+        vscode.window.showErrorMessage('NERV: Not inside a git repository.');
+        return;
+      }
+      const repoRoot = path.dirname(gitCheck.stdout.trim().replace(/\\/g, '/'));
+      const name = await vscode.window.showInputBox({
+        prompt: 'Worktree name',
+        placeHolder: 'feature-branch',
+        validateInput: v => /^[a-zA-Z0-9._-]+$/.test(v) ? null : 'Alphanumeric, dots, dashes, underscores only',
+      });
+      if (!name) return;
+      const worktreeDir = path.join(cwd, '.claude', 'worktrees', name);
+      await fs.promises.mkdir(path.join(cwd, '.claude', 'worktrees'), { recursive: true });
+      // Get default branch
+      const branchCheck = require('child_process').spawnSync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD', '--short'], { cwd, encoding: 'utf-8' });
+      const defaultBranch = branchCheck.status === 0 ? branchCheck.stdout.trim() : 'HEAD';
+      // Create worktree
+      const wtResult = require('child_process').spawnSync('git', ['worktree', 'add', '-b', `worktree-${name}`, worktreeDir, defaultBranch], { cwd, encoding: 'utf-8' });
+      if (wtResult.status !== 0) {
+        vscode.window.showErrorMessage(`NERV: Failed to create worktree: ${wtResult.stderr || wtResult.stdout}`);
+        return;
+      }
+      vscode.window.showInformationMessage(`NERV: Worktree created at ${worktreeDir}`);
+      await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(worktreeDir), { forceNewWindow: true });
+    }),
+  );
+
+  // ── Feature 6: Show Logs ────────────────────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('nerv-code.showLogs', async () => {
+      const logPath = path.join(os.homedir(), 'nerv-debug.log');
+      if (fs.existsSync(logPath)) {
+        const doc = await vscode.workspace.openTextDocument(logPath);
+        await vscode.window.showTextDocument(doc, { preview: false });
+      } else {
+        vscode.window.showWarningMessage('NERV: No debug log found at ' + logPath);
+      }
+    }),
+  );
+
+  // ── Feature 9: Reinstall / Update Extension ─────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('nerv-code.update', async () => {
+      const srcDir = vscode.workspace.getConfiguration('nerv-code').get('cliPath');
+      if (!srcDir) {
+        vscode.window.showInformationMessage('NERV: Set nerv-code.cliPath in settings to enable update. Reinstalling from current source...');
+      }
+      // Copy from source to installed extension
+      const extSrcBase = path.resolve(context.extensionPath, '..', '..', '..'); // Workspace likely
+      const installedDir = context.extensionPath;
+      const filesToCopy = ['extension.js', 'media/app.js', 'media/styles.css', 'package.json'];
+      // Attempt to find source directory
+      const possibleSrc = [
+        'F:/AI_tool/NERV-CODE_vscode/vscode-extension',
+        path.join(os.homedir(), 'NERV-CODE_vscode', 'vscode-extension'),
+      ];
+      let sourceDir = possibleSrc.find(d => fs.existsSync(path.join(d, 'extension.js')));
+      if (!sourceDir) {
+        const picked = await vscode.window.showOpenDialog({
+          canSelectFolders: true,
+          canSelectFiles: false,
+          openLabel: 'Select NERV-CODE source directory',
+        });
+        if (!picked || picked.length === 0) return;
+        sourceDir = picked[0].fsPath;
+      }
+      let copied = 0;
+      for (const f of filesToCopy) {
+        const src = path.join(sourceDir, f);
+        const dst = path.join(installedDir, f);
+        if (fs.existsSync(src)) {
+          await fs.promises.mkdir(path.dirname(dst), { recursive: true });
+          await fs.promises.copyFile(src, dst);
+          copied++;
+        }
+      }
+      vscode.window.showInformationMessage(`NERV: Updated ${copied} files. Reload window to apply.`);
     }),
   );
 

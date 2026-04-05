@@ -38,6 +38,8 @@
   "activationEvents": [
     "onCommand:nerv-code.open",
     "onCommand:nerv-code.restart",
+    "onCommand:nerv-code.editor.open",
+    "onCommand:nerv-code.focus",
     "onView:nerv-code.sidebarView"
   ],
   "main": "./extension.js",
@@ -58,6 +60,88 @@
       {
         "command": "nerv-code.restart",
         "title": "NERV CODE: Restart Session"
+      },
+      {
+        "command": "nerv-code.reloadWebview",
+        "title": "NERV CODE: Reload Webview"
+      },
+      {
+        "command": "nerv-code.editor.open",
+        "title": "NERV CODE: Open in New Tab",
+        "icon": {
+          "light": "media/nerv-toolbar-icon.png",
+          "dark": "media/nerv-toolbar-icon.png"
+        }
+      },
+      {
+        "command": "nerv-code.focus",
+        "title": "NERV CODE: Focus Input"
+      },
+      {
+        "command": "nerv-code.blur",
+        "title": "NERV CODE: Blur Input"
+      },
+      {
+        "command": "nerv-code.newConversation",
+        "title": "NERV CODE: New Conversation"
+      },
+      {
+        "command": "nerv-code.insertAtMention",
+        "title": "NERV CODE: Insert @-Mention Reference"
+      },
+      {
+        "command": "nerv-code.createWorktree",
+        "title": "NERV CODE: Create Worktree"
+      },
+      {
+        "command": "nerv-code.showLogs",
+        "title": "NERV CODE: Show Logs"
+      },
+      {
+        "command": "nerv-code.update",
+        "title": "NERV CODE: Reinstall / Update Extension"
+      },
+      {
+        "command": "nerv-code.acceptProposedDiff",
+        "title": "NERV CODE: Accept Proposed Changes",
+        "enablement": "nerv-code.viewingProposedDiff",
+        "icon": "$(check)"
+      },
+      {
+        "command": "nerv-code.rejectProposedDiff",
+        "title": "NERV CODE: Reject Proposed Changes",
+        "enablement": "nerv-code.viewingProposedDiff",
+        "icon": "$(discard)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "nerv-code.insertAtMention",
+        "key": "alt+k",
+        "mac": "alt+k",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "nerv-code.focus",
+        "key": "ctrl+l",
+        "mac": "cmd+l",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "nerv-code.blur",
+        "key": "escape",
+        "when": "!editorTextFocus && nerv-code.inputFocused"
+      },
+      {
+        "command": "nerv-code.editor.open",
+        "key": "ctrl+shift+l",
+        "mac": "cmd+shift+l"
+      },
+      {
+        "command": "nerv-code.newConversation",
+        "key": "ctrl+n",
+        "mac": "cmd+n",
+        "when": "activeWebviewPanelId == 'nervCodePanel'"
       }
     ],
     "viewsContainers": {
@@ -144,6 +228,16 @@
     "menus": {
       "editor/title": [
         {
+          "command": "nerv-code.acceptProposedDiff",
+          "when": "nerv-code.viewingProposedDiff",
+          "group": "navigation"
+        },
+        {
+          "command": "nerv-code.rejectProposedDiff",
+          "when": "nerv-code.viewingProposedDiff",
+          "group": "navigation"
+        },
+        {
           "command": "nerv-code.open",
           "group": "navigation"
         }
@@ -153,6 +247,16 @@
           "command": "nerv-code.restart",
           "when": "view == nerv-code.sidebarView",
           "group": "navigation@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "nerv-code.blur",
+          "when": "false"
+        },
+        {
+          "command": "nerv-code.newConversation",
+          "when": "false"
         }
       ]
     }

@@ -494,6 +494,50 @@ textarea:disabled {
   gap: 8px;
 }
 
+/* Inline diff in permission card */
+.inline-diff-header {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+.diff-ctx { color: var(--text-muted); }
+.diff-del {
+  color: #f48771;
+  background: rgba(244, 135, 113, 0.1);
+}
+.diff-add {
+  color: #89d185;
+  background: rgba(137, 209, 133, 0.1);
+}
+.diff-ctx, .diff-del, .diff-add {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Stop / abort button */
+.stop-btn {
+  min-height: 32px;
+  padding: 0 16px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid var(--accent);
+  background: rgba(183, 40, 46, 0.15);
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.stop-btn:hover {
+  background: rgba(183, 40, 46, 0.3);
+  border-color: var(--accent-hover, #d13038);
+}
+
 /* Ghost button active variant (for permission Allow Once) */
 .ghost--active {
   border-color: var(--line-strong);
@@ -1024,6 +1068,20 @@ textarea:disabled {
   object-fit: cover;
   flex-shrink: 0;
 }
+.user-images {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.user-pasted-image {
+  max-width: 320px;
+  max-height: 240px;
+  border-radius: 6px;
+  border: 1px solid var(--vscode-widget-border, rgba(255,255,255,0.1));
+  object-fit: contain;
+  cursor: pointer;
+}
 .attachment-icon {
   flex-shrink: 0;
   font-size: 14px;
@@ -1362,41 +1420,60 @@ textarea:disabled {
 /* ============================================================
  * Thinking block (collapsible)
  * ============================================================ */
-.thinking-block {
-  margin: 0.4em 0;
+/* Legacy thinking-block (unused, kept for safety) */
+.thinking-block { display: none; }
+
+/* ── Thinking bubble: compact pill, expands on click ── */
+.thinking-bubble {
+  display: inline-block;
+  margin-top: 8px;
+  border-radius: 12px;
+  background: rgba(255, 200, 60, 0.06);
   border: 1px solid rgba(255, 200, 60, 0.15);
-  border-radius: 0;
-  background: rgba(255, 200, 60, 0.04);
   overflow: hidden;
+  max-width: 100%;
 }
-.thinking-summary {
-  display: flex;
+.thinking-bubble-summary {
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
+  gap: 5px;
+  padding: 3px 10px;
   cursor: pointer;
   font-size: 11px;
   color: var(--text-muted);
   user-select: none;
+  list-style: none;          /* hide default ▶ marker */
 }
-.thinking-summary:hover { background: rgba(255, 200, 60, 0.06); }
-.thinking-icon { font-size: 13px; }
-.thinking-badge {
-  margin-left: auto;
-  padding: 1px 6px;
-  border-radius: 0;
+.thinking-bubble-summary::-webkit-details-marker { display: none; }
+.thinking-bubble-summary::marker { display: none; content: ''; }
+.thinking-bubble-summary:hover { background: rgba(255, 200, 60, 0.08); }
+.thinking-bubble-icon {
+  font-size: 10px;
+  color: rgba(255, 200, 60, 0.5);
+}
+.thinking-bubble-label {
+  font-size: 11px;
+}
+.thinking-bubble-count {
+  padding: 0 5px;
+  border-radius: 8px;
   background: rgba(255, 200, 60, 0.1);
   font-size: 9px;
   font-family: var(--font-mono);
   color: var(--text-faint);
 }
-.thinking-content {
+.thinking-bubble-content {
   padding: 8px 12px;
   border-top: 1px solid rgba(255, 200, 60, 0.1);
   font-size: 11px;
   color: var(--text-muted);
   max-height: 300px;
   overflow: auto;
+}
+/* When open, expand to full width */
+.thinking-bubble[open] {
+  display: block;
+  border-radius: 6px;
 }
 
 /* ============================================================

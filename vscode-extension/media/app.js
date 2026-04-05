@@ -59,6 +59,7 @@ const elements = {
   loginCancel: document.getElementById('loginCancel'),     // 取消登录
   attachButton: document.getElementById('attachButton'),   // 附件按钮
   attachmentsPreview: document.getElementById('attachmentsPreview'), // 附件预览区
+  stopButton: document.getElementById('stopButton'),       // 停止按钮
   /* Slash 命令自动补全弹出层 */
   slashPopup: document.getElementById('slashPopup'),
   /* 会话标签栏 */
@@ -86,10 +87,51 @@ const uiState = {
 
 /** 当前完整状态（从 extension.js 推送） */
 let currentState = null;
+
+/** webview 本地图片存储：key = 用户消息文本, value = 图片 data URL 数组 */
+const sentImagesMap = new Map();
 /** 是否正在进行输入法组合（如中文输入） */
 let isPromptComposing = false;
 /** 待确认的提示文本 */
 let pendingPromptText = '';
+
+/* ============================================================
+ * Inline diff renderer for permission card
+ * ============================================================ */
+function renderInlineDiff(fileName, original, proposed) {
+  const oldLines = original.split('\n');
+  const newLines = proposed.split('\n');
+  let html = `<div class="inline-diff-header">${escapeHtml(fileName)}</div>`;
+  // Simple line-by-line diff
+  const maxLen = Math.max(oldLines.length, newLines.length);
+  const diffLines = [];
+  // Find changed region
+  let i = 0, j = oldLines.length - 1, k = newLines.length - 1;
+  while (i < oldLines.length && i < newLines.length && oldLines[i] === newLines[i]) i++;
+  while (j >= i && k >= i && oldLines[j] === newLines[k]) { j--; k--; }
+  // Context before (up to 3 lines)
+  const ctxStart = Math.max(0, i - 3);
+  for (let n = ctxStart; n < i; n++) {
+    diffLines.push(`<div class="diff-ctx"> ${escapeHtml(oldLines[n])}</div>`);
+  }
+  // Removed lines
+  for (let n = i; n <= j; n++) {
+    diffLines.push(`<div class="diff-del">-${escapeHtml(oldLines[n])}</div>`);
+  }
+  // Added lines
+  for (let n = i; n <= k; n++) {
+    diffLines.push(`<div class="diff-add">+${escapeHtml(newLines[n])}</div>`);
+  }
+  // Context after (up to 3 lines)
+  const ctxEnd = Math.min(oldLines.length, j + 4);
+  for (let n = j + 1; n < ctxEnd; n++) {
+    diffLines.push(`<div class="diff-ctx"> ${escapeHtml(oldLines[n])}</div>`);
+  }
+  if (diffLines.length === 0) {
+    diffLines.push(`<div class="diff-add">+${escapeHtml(proposed)}</div>`);
+  }
+  return html + diffLines.join('');
+}
 
 /* ============================================================
  * 三、布莱叶盲文旋转动画
@@ -431,14 +473,15 @@ function parseThinkingBlocks(text) {
 function renderThinkingBlock(thinkingText, options) {
   if (!thinkingText) return '';
   const isOpen = options && options.open;
+  const lineCount = thinkingText.split('\n').length;
   return `
-    <details class="thinking-block"${isOpen ? ' open' : ''}>
-      <summary class="thinking-summary">
-        <span class="thinking-icon">💭</span>
-        <span>Thinking Process</span>
-        <span class="thinking-badge">${thinkingText.split('\n').length} lines</span>
+    <details class="thinking-bubble"${isOpen ? ' open' : ''}>
+      <summary class="thinking-bubble-summary">
+        <span class="thinking-bubble-icon">⬢</span>
+        <span class="thinking-bubble-label">Thinking Process</span>
+        <span class="thinking-bubble-count">${lineCount} lines</span>
       </summary>
-      <div class="thinking-content">${renderMarkdown(thinkingText)}</div>
+      <div class="thinking-bubble-content">${renderMarkdown(thinkingText)}</div>
     </details>
   `;
 }
@@ -459,7 +502,14 @@ function updateComposerDraftState(state = currentState || {}) {
   const blocked = Boolean(state.pendingPermission) || Boolean(state.busy);
   elements.composer.classList.toggle('composer--has-input', hasText);
   elements.composer.classList.toggle('composer--empty', !hasText);
-  elements.sendButton.disabled = blocked || !hasText;
+  // Show stop button only when busy AND input is empty; otherwise show send button
+  const isBusy = Boolean(state.busy) && state.sessionState === 'running';
+  const showStop = isBusy && !hasText;
+  if (elements.stopButton) {
+    elements.stopButton.classList.toggle('hidden', !showStop);
+  }
+  elements.sendButton.classList.toggle('hidden', showStop);
+  elements.sendButton.disabled = showStop || !hasText;
 }
 
 /** 安全绑定事件（元素不存在时跳过） */
@@ -657,11 +707,24 @@ function renderModelPicker(state) {
   }
 
   const allOptions = [...profileOptions, ...modelOptions];
-  const hasSelectedModelOption = allOptions.some(option => option.value === state.selectedModel);
+  // 如果 selectedModel 不在选项列表里（如内置别名 sonnet/opus/haiku），动态添加
+  // 但跳过已被 profile 覆盖的模型（profile.id ≠ profile.model，两者都应算匹配）
+  const selectedModelValue = state.selectedModel || '';
+  const profileModelNames = new Set(profiles.map(p => p.model?.toLowerCase()).filter(Boolean));
+  if (selectedModelValue && selectedModelValue !== 'default' &&
+      !allOptions.some(opt => opt.value === selectedModelValue) &&
+      !profileModelNames.has(selectedModelValue.toLowerCase())) {
+    const label = selectedModelValue.charAt(0).toUpperCase() + selectedModelValue.slice(1);
+    allOptions.push({ value: selectedModelValue, label, description: `Model: ${selectedModelValue}` });
+  }
+  // Resolve selectedModel to profile ID if it matches a profile's model name
+  const matchingProfile = profiles.find(p => p.model?.toLowerCase() === selectedModelValue.toLowerCase());
+  const resolvedSelectedModel = matchingProfile ? matchingProfile.id : selectedModelValue;
+  // 优先级：pending > activeProfile > selectedModel(resolved) > 第一个选项
   const currentValue =
     state.pendingModelValue ||
     state.activeProfileId ||
-    (hasSelectedModelOption ? state.selectedModel : '') ||
+    (resolvedSelectedModel && allOptions.some(o => o.value === resolvedSelectedModel) ? resolvedSelectedModel : '') ||
     profileOptions[0]?.value ||
     modelOptions[0]?.value || '';
 
@@ -711,9 +774,10 @@ function renderInteractionControls(state) {
   }
 }
 
-/** 渲染频率限制警告 */
+/** 渲染频率限制警告 — 仅在接近或达到限额时显示 */
 function renderRateLimit(state) {
-  if (!state.rateLimit) {
+  // 只在 rejected（已达限额）或 allowed_warning（接近限额）时显示
+  if (!state.rateLimit || (state.rateLimit.status !== 'rejected' && state.rateLimit.status !== 'allowed_warning')) {
     elements.rateLimit.classList.add('hidden');
     elements.rateLimit.innerHTML = '';
     return;
@@ -722,7 +786,7 @@ function renderRateLimit(state) {
   const details = [state.rateLimit.rateLimitType, resetTime ? `resets ${resetTime}` : ''].filter(Boolean).join(' - ');
   elements.rateLimit.classList.remove('hidden');
   elements.rateLimit.innerHTML = `
-    <strong>${escapeHtml(state.rateLimit.status === 'rejected' ? 'Usage limit reached' : 'Usage notice')}</strong>
+    <strong>${escapeHtml(state.rateLimit.status === 'rejected' ? 'Usage limit reached' : 'Usage warning')}</strong>
     <span>${escapeHtml(details || 'NERV CODE reported a usage update.')}</span>
   `;
 }
@@ -737,7 +801,14 @@ function renderPermission(state) {
   elements.permissionCard.classList.remove('hidden');
   elements.permissionTitle.textContent = pending.title || pending.toolName || 'Authorization request';
   elements.permissionDescription.textContent = pending.description || `MAGI requests approval to use ${pending.toolName}.`;
-  elements.permissionInput.textContent = JSON.stringify(pending.input || {}, null, 2);
+
+  // Render inline diff if available, otherwise show raw input JSON
+  if (pending.diff) {
+    const fileName = pending.diff.filePath.replace(/\\/g, '/').split('/').pop();
+    elements.permissionInput.innerHTML = renderInlineDiff(fileName, pending.diff.original, pending.diff.proposed);
+  } else {
+    elements.permissionInput.textContent = JSON.stringify(pending.input || {}, null, 2);
+  }
 }
 
 /**
@@ -748,16 +819,24 @@ function renderPermission(state) {
 function renderMessageBody(message) {
   const text = message.text || '';
 
-  // 用户消息：简单转义 + 换行
+  // 用户消息：简单转义 + 换行 + 附带图片（从 webview 本地 Map 读取）
   if (message.role === 'user') {
-    return escapeHtml(text).replace(/\n/g, '<br>');
+    let html = escapeHtml(text).replace(/\n/g, '<br>');
+    const images = sentImagesMap.get(text.trim());
+    if (images && images.length > 0) {
+      html += '<div class="user-images">' +
+        images.map(src =>
+          `<img src="${src}" class="user-pasted-image" alt="pasted image" />`
+        ).join('') + '</div>';
+    }
+    return html;
   }
 
-  // AI 回复：解析 thinking + Markdown 渲染
+  // AI 回复：解析 thinking + Markdown 渲染（thinking 作为小气泡放在正文后面）
   const { thinking, body } = parseThinkingBlocks(text);
   const thinkingHtml = renderThinkingBlock(thinking);
   const bodyHtml = renderMarkdown(body);
-  return thinkingHtml + bodyHtml;
+  return bodyHtml + thinkingHtml;
 }
 
 /** 渲染会话消息列表（主聊天区域） */
@@ -833,30 +912,73 @@ function renderTranscript(state) {
     }
   } else {
     // 渲染所有消息（带 Markdown + Thinking）
-    // Thinking-only assistant messages (no visible body) are hidden to keep transcript clean
-    const transcriptMarkup = messages.map(message => {
-      const speaker = message.role === 'user' ? 'You' : 'MAGI';
-      const bodyHtml = renderMessageBody(message);
-      // Skip empty messages (no thinking AND no body)
-      if (message.role !== 'user') {
-        const { thinking, body } = parseThinkingBlocks(message.text || '');
-        if (!body.trim() && !thinking.trim()) return '';
+    // Consecutive assistant messages' thinking blocks are consolidated into
+    // a single collapsible bubble placed AFTER the final text response.
+    const transcriptMarkup = (() => {
+      const result = [];
+      let i = 0;
+      while (i < messages.length) {
+        const message = messages[i];
+        if (message.role !== 'assistant') {
+          // user / system / other: render individually
+          const speaker = message.role === 'user' ? 'You' : 'MAGI';
+          const bodyHtml = renderMessageBody(message);
+          result.push(`
+            <article class="message message--${escapeHtml(message.role)} message--tone-${escapeHtml(message.tone || message.role)}">
+              <div class="message-meta">
+                <span>${escapeHtml(speaker)}</span>
+                <span>${escapeHtml(formatTimestamp(message.timestamp))}</span>
+              </div>
+              <div class="message-body">${bodyHtml}</div>
+            </article>`);
+          i++;
+          continue;
+        }
+        // Collect consecutive assistant messages into one group
+        const groupThinking = [];
+        const groupBodies = [];
+        let lastTimestamp = message.timestamp;
+        let lastTone = message.tone || message.role;
+        while (i < messages.length && messages[i].role === 'assistant') {
+          const msg = messages[i];
+          const { thinking, body } = parseThinkingBlocks(msg.text || '');
+          if (thinking.trim()) groupThinking.push(thinking.trim());
+          if (body.trim()) groupBodies.push(renderMarkdown(body));
+          lastTimestamp = msg.timestamp;
+          lastTone = msg.tone || msg.role;
+          i++;
+        }
+        // Skip entirely empty groups
+        if (groupBodies.length === 0 && groupThinking.length === 0) continue;
+        // Build single consolidated thinking bubble + body
+        const consolidatedThinking = groupThinking.length > 0
+          ? renderThinkingBlock(groupThinking.join('\n\n'))
+          : '';
+        const consolidatedBody = groupBodies.join('');
+        result.push(`
+          <article class="message message--assistant message--tone-${escapeHtml(lastTone)}">
+            <div class="message-meta">
+              <span>MAGI</span>
+              <span>${escapeHtml(formatTimestamp(lastTimestamp))}</span>
+            </div>
+            <div class="message-body">${consolidatedBody}${consolidatedThinking}</div>
+          </article>`);
       }
-      return `
-        <article class="message message--${escapeHtml(message.role)} message--tone-${escapeHtml(message.tone || message.role)}">
-          <div class="message-meta">
-            <span>${escapeHtml(speaker)}</span>
-            <span>${escapeHtml(formatTimestamp(message.timestamp))}</span>
-          </div>
-          <div class="message-body">${bodyHtml}</div>
-        </article>`;
-    }).join('');
+      return result.join('');
+    })();
 
     const optimisticMarkup = uiState.optimisticUserText
-      ? `<article class="message message--user message--pending">
-          <div class="message-meta"><span>You</span><span>${escapeHtml(formatTimestamp(uiState.optimisticUserTimestamp))}</span></div>
-          <div class="message-body">${escapeHtml(uiState.optimisticUserText).replace(/\n/g, '<br>')}</div>
-        </article>`
+      ? (() => {
+          const imgHtml = sentImagesMap.has(uiState.optimisticUserText)
+            ? '<div class="user-images">' + sentImagesMap.get(uiState.optimisticUserText).map(src =>
+                `<img src="${src}" class="user-pasted-image" alt="pasted image" />`
+              ).join('') + '</div>'
+            : '';
+          return `<article class="message message--user message--pending">
+            <div class="message-meta"><span>You</span><span>${escapeHtml(formatTimestamp(uiState.optimisticUserTimestamp))}</span></div>
+            <div class="message-body">${escapeHtml(uiState.optimisticUserText).replace(/\n/g, '<br>')}${imgHtml}</div>
+          </article>`;
+        })()
       : '';
 
     if (showStreamingBubble) {
@@ -1408,12 +1530,74 @@ function readFileAsDataUrl(file) {
   });
 }
 
+/**
+ * 根据当前模型返回图片最大像素尺寸
+ * 不同模型 API 对图片大小有不同限制
+ */
+function getModelImageMaxDim() {
+  // CLI 后端 (imageResizer.ts) 硬限制 IMAGE_MAX_WIDTH/HEIGHT = 2000
+  // 且 sharp 原生模块可能不可用，超过此尺寸会导致后端崩溃
+  // 所以所有模型统一限制到 2000 以内
+  const model = (currentState?.runtime?.model || currentState?.selectedModel || '').toLowerCase();
+  // MiniMax 系列：更保守的限制
+  if (model.includes('minimax') || model.includes('m2.7')) {
+    return 1920;
+  }
+  // 所有其他模型统一 2000（CLI 后端硬限制）
+  return 2000;
+}
+
+/**
+ * 用 Canvas 缩放图片，确保不超过 maxDim x maxDim，
+ * 且 base64 大小不超过 5MB（CLI 后端 API_IMAGE_MAX_BASE64_SIZE）
+ */
+const MAX_BASE64_SIZE = 5 * 1024 * 1024; // 5MB
+function resizeImageDataUrl(dataUrl, maxDim) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      const needsResize = width > maxDim || height > maxDim;
+      if (needsResize) {
+        const scale = Math.min(maxDim / width, maxDim / height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      // 先尝试 PNG
+      let result = canvas.toDataURL('image/png');
+      // 如果 base64 部分超过 5MB，改用 JPEG 逐步降低质量
+      const getBase64Len = (du) => {
+        const idx = du.indexOf(',');
+        return idx >= 0 ? du.length - idx - 1 : du.length;
+      };
+      if (getBase64Len(result) > MAX_BASE64_SIZE) {
+        for (const q of [0.85, 0.7, 0.5, 0.3]) {
+          result = canvas.toDataURL('image/jpeg', q);
+          if (getBase64Len(result) <= MAX_BASE64_SIZE) break;
+        }
+      }
+      resolve(result);
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
 async function handleFileSelection(files) {
   for (const file of Array.from(files)) {
     const type = classifyFile(file.type, file.name);
     if (!type) continue;
     try {
-      const dataUrl = await readFileAsDataUrl(file);
+      let dataUrl = await readFileAsDataUrl(file);
+      // 根据当前模型的限制自动缩放图片
+      if (type === 'image') {
+        dataUrl = await resizeImageDataUrl(dataUrl, getModelImageMaxDim());
+      }
       const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
       if (!match) continue;
       pendingAttachments.push({
@@ -1466,6 +1650,16 @@ function sendPrompt() {
   pendingPromptText = text;
   uiState.optimisticUserText = text;
   uiState.optimisticUserTimestamp = new Date().toISOString();
+
+  // 存图片到 webview 本地 Map（不经过 extension.js 往返）
+  const imagePreviewUrls = pendingAttachments
+    .filter(a => a.previewUrl)
+    .map(a => a.previewUrl);
+  const msgKey = text || '(see attached files)';
+  if (imagePreviewUrls.length > 0) {
+    sentImagesMap.set(msgKey, imagePreviewUrls);
+  }
+
   if (currentState) render(currentState);
 
   const msg = { type: 'sendPrompt', text: text || '(see attached files)' };
@@ -1484,8 +1678,11 @@ function sendPrompt() {
  * 绑定所有 UI 控件的交互事件
  * ============================================================ */
 
-// ── 发送和权限按钮 ──
+// ── 发送、停止和权限按钮 ──
 bindEvent(elements.sendButton, 'click', sendPrompt);
+bindEvent(elements.stopButton, 'click', () => {
+  vscode.postMessage({ type: 'stopGeneration' });
+});
 bindEvent(elements.approveButton, 'click', () => {
   vscode.postMessage({ type: 'permissionDecision', allow: true });
 });
@@ -1567,7 +1764,10 @@ bindEvent(elements.promptInput, 'paste', (e) => {
       if (file) files.push(file);
     }
   }
-  if (files.length > 0) handleFileSelection(files);
+  if (files.length > 0) {
+    e.preventDefault();
+    handleFileSelection(files);
+  }
 });
 
 // ── 新会话按钮 ──
@@ -1819,6 +2019,16 @@ window.addEventListener('message', event => {
   if (message.type === 'focusInput') {
     elements.promptInput.focus();
     vscode.postMessage({ type: 'focusInputAck' });
+  }
+  if (message.type === 'insertText') {
+    const input = elements.promptInput;
+    const start = input.selectionStart || input.value.length;
+    const end = input.selectionEnd || start;
+    input.value = input.value.slice(0, start) + message.text + input.value.slice(end);
+    input.selectionStart = input.selectionEnd = start + message.text.length;
+    input.focus();
+    autoSizePromptInput();
+    updateComposerDraftState();
   }
 });
 
